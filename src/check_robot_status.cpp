@@ -107,11 +107,11 @@ private:
 
       } else if (robot_status == RobotStatus::NAV_PREPARE) {
         if (is_tf_odom_map_existed()) {
-          RCLCPP_INFO(this->get_logger(), "nav_standby");
-          publish_status(RobotStatus::NAV_STANDBY);
+          RCLCPP_INFO(this->get_logger(), "nav_ready");
+          publish_status(RobotStatus::NAV_READY);
           is_localized_ = true;
           this->set_parameter(
-              Parameter("fitrobot_status", RobotStatus::NAV_STANDBY));
+              Parameter("fitrobot_status", RobotStatus::NAV_READY));
         } else if (!check_nav2_running()) {
           RCLCPP_INFO(this->get_logger(), "bringup");
           publish_status(RobotStatus::BRINGUP);
@@ -120,7 +120,7 @@ private:
         }
         return;
 
-      } else if (robot_status == RobotStatus::NAV_STANDBY) {
+      } else if (robot_status == RobotStatus::NAV_READY) {
         if (!is_tf_odom_map_existed()) {
           RCLCPP_INFO(this->get_logger(), "nav_prepare");
           publish_status(RobotStatus::NAV_PREPARE);

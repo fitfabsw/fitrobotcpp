@@ -18,9 +18,7 @@ find_package(std_srvs REQUIRED)
 find_package(fitrobot_interfaces REQUIRED)
 
 # This section will create an executable for the node
-add_executable(check_tf_service src/check_tf_service.cpp)
 add_executable(check_robot_status src/check_robot_status.cpp)
-ament_target_dependencies(check_tf_service rclcpp tf2_ros std_srvs fitrobot_interfaces)
 ament_target_dependencies(check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces)
 
 
@@ -35,7 +33,7 @@ include_directories(
 )
 
 install(TARGETS
-  check_tf_service check_robot_status
+  check_robot_status
   DESTINATION lib/${PROJECT_NAME}
 )
 

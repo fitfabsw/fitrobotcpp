@@ -205,7 +205,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
             if (robot_status == RobotStatus::STANDBY) {
                 if (is_tf_odom_baselink_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "bringup");
+                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                 }
@@ -225,12 +225,12 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
             } else if (robot_status == RobotStatus::NAV_PREPARE) {
                 if (is_tf_odom_map_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "nav_standby");
+                    RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
                     publish_status(RobotStatus::NAV_READY);
                     is_localized_ = true;
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
                 } else if (!check_nav2_running()) {
-                    RCLCPP_INFO(this->get_logger(), "bringup");
+                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                 }

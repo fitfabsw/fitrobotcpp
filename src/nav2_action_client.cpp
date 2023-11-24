@@ -1,6 +1,7 @@
 #include "fitrobot_interfaces/srv/waypoint_follower.hpp"
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "rclcpp/callback_group.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp/time.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -101,7 +102,6 @@ std::pair<Station, Station> getStartAndEndStations() {
              item["y"],    item["z"],    item["w"]};
     }
   }
-
   return std::make_pair(start, end);
 }
 
@@ -116,87 +116,66 @@ public:
   using GoalHandleFollowWaypoints =
       rclcpp_action::ClientGoalHandle<FollowWaypoints>;
   rclcpp_action::Client<FollowWaypoints>::SharedPtr client_fw_ptr_;
+  std::shared_future<std::shared_ptr<GoalHandleFollowWaypoints>>
+      resultFutureFollowWaypoints_;
+  int current_waypoint_index_ = -1;
 
   explicit Nav2Client() : Node("nav2_send_goal") {
     this->client_ptr_ =
         rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
     this->client_fw_ptr_ =
         rclcpp_action::create_client<FollowWaypoints>(this, "follow_waypoints");
-    waypoint_srv_ = this->create_service<WaypointFollowerSrv>(
-        "waypoint_follower",
-        std::bind(&Nav2Client::waypointFollowerCallback, this, _1, _2, _3));
-
-    std::string my_package_path = get_package_path("fitrobot");
-    std::tie(start_station, end_station) = getStartAndEndStations();
-    RCLCPP_INFO(this->get_logger(), "Start Station: %s, End Station: %s",
-                start_station.name.c_str(), end_station.name.c_str());
-
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(1));
-    qos.transient_local();
-    qos.reliable();
-    target_station_pub_ =
-        this->create_publisher<FitStation>("target_station", qos);
   }
 
-  Station start_station, end_station;
-  rclcpp::Service<fitrobot_interfaces::srv::WaypointFollower>::SharedPtr
-      waypoint_srv_;
-  rclcpp::Publisher<FitStation>::SharedPtr target_station_pub_;
-  std::shared_future<std::shared_ptr<GoalHandleFollowWaypoints>>
-      resultFutureFollowWaypoints_;
-  int current_waypoint_index_ = -1;
-
-  void waypointFollowerCallback(
-      const shared_ptr<rmw_request_id_t> /*request_header*/,
-      const shared_ptr<WaypointFollowerSrv::Request> request,
-      const shared_ptr<WaypointFollowerSrv::Response> /*response*/) {
-    RCLCPP_INFO(this->get_logger(), "waypoint follower服務開始");
-    FitStation station = request->station;
-    addStation(station);
-    RCLCPP_INFO(this->get_logger(), "waypoint follower服務結束");
-  }
-
-  void addStation(const FitStation &station) {
-    RCLCPP_INFO(get_logger(), "addStation start");
-    this->follow(station);
-    RCLCPP_INFO(get_logger(), "addStation done");
-  }
-
-  void follow(const FitStation &station) {
+  void follow(std::vector<geometry_msgs::msg::PoseStamped> poses) {
     while (!this->client_fw_ptr_->wait_for_action_server()) {
       RCLCPP_INFO(get_logger(), "Waiting for action server...");
     }
+    RCLCPP_INFO(get_logger(), "follow start");
     auto goal_msg = FollowWaypoints::Goal();
-    goal_msg.poses = createWaypointsFromStations(station);
-
+    goal_msg.poses = poses;
     auto send_goal_options =
         rclcpp_action::Client<FollowWaypoints>::SendGoalOptions();
-
     send_goal_options.feedback_callback =
         std::bind(&Nav2Client::feedbackCallbackFollowWaypoints, this, _1, _2);
-
     send_goal_options.result_callback =
         std::bind(&Nav2Client::resultCallbackFollowWaypoints, this, _1);
-
     resultFutureFollowWaypoints_ =
         client_fw_ptr_->async_send_goal(goal_msg, send_goal_options);
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
+                                           resultFutureFollowWaypoints_) !=
+        rclcpp::FutureReturnCode::SUCCESS) {
+      RCLCPP_ERROR(get_logger(), "get result call failed :(");
+    } else {
+      RCLCPP_ERROR(get_logger(), "get result call success :(");
+    }
+    std::future_status status = resultFutureFollowWaypoints_.wait_for(
+        1000s); // timeout to guarantee a graceful finish
+    if (status == std::future_status::ready) {
+      if (resultFutureFollowWaypoints_.valid()) {
+        RCLCPP_ERROR(get_logger(), "....A");
+        auto goal_handle = resultFutureFollowWaypoints_.get();
+        if (!goal_handle) {
+          RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
+                      "Goal was rejected by server");
+        } else {
+          RCLCPP_INFO(rclcpp::get_logger("rclcpp"),
+                      "Goal accepted by server, waiting for "
+                      "result");
+        }
+      }
+      RCLCPP_INFO(get_logger(), "goal_handle..1");
+      auto goal_handle = resultFutureFollowWaypoints_.get();
+      RCLCPP_INFO(get_logger(), "goal_handle..2");
+      auto future_result = client_fw_ptr_->async_get_result(goal_handle);
 
-    // rclcpp::spin_until_future_complete(shared_from_this(),
-    // resultFutureFollowWaypoints_); auto goal_handle =
-    // resultFutureFollowWaypoints_.get();
-  }
+      rclcpp::spin_until_future_complete(shared_from_this(), future_result);
+      RCLCPP_INFO(get_logger(), "future_result received !!!");
+    } else {
+      RCLCPP_INFO(get_logger(), "goal_handle not ready");
+    }
 
-  std::vector<geometry_msgs::msg::PoseStamped>
-  createWaypointsFromStations(const FitStation &st) {
-    std::vector<geometry_msgs::msg::PoseStamped> waypoints;
-    Station station = {st.type, st.name, st.x, st.y, st.z, st.w};
-    // Add station, end_station, start_station as waypoints
-    waypoints.push_back(createPose(station.x, station.y, station.z));
-    waypoints.push_back(
-        createPose(start_station.x, start_station.y, start_station.z));
-    waypoints.push_back(
-        createPose(end_station.x, end_station.y, end_station.z));
-    return waypoints;
+    RCLCPP_INFO(get_logger(), "follow end");
   }
 
   void feedbackCallbackFollowWaypoints(
@@ -210,6 +189,9 @@ public:
 
   void resultCallbackFollowWaypoints(
       const GoalHandleFollowWaypoints::WrappedResult &result) {
+    RCLCPP_INFO(get_logger(), "resultCallbackFollowWaypoints");
+    resultFutureFollowWaypoints_.get();
+    RCLCPP_INFO(get_logger(), "resultCallbackFollowWaypoints");
     switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
       RCLCPP_INFO(get_logger(), "Goal reached successfully");
@@ -292,10 +274,125 @@ public:
   }
 };
 
+class Nav2Service : public rclcpp::Node {
+public:
+  std::shared_ptr<Nav2Client> nav2_client_;
+  Station start_station, end_station;
+  rclcpp::Service<fitrobot_interfaces::srv::WaypointFollower>::SharedPtr
+      waypoint_srv_;
+  rclcpp::Publisher<FitStation>::SharedPtr target_station_pub_;
+  int current_waypoint_index_ = -1;
+  rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
+  rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
+  int count_;
+
+  explicit Nav2Service()
+      : Node("nav2_service"), nav2_client_(std::make_shared<Nav2Client>()),
+        count_(0) {
+    service_cbg_MU =
+        create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    service_cbg_RE =
+        create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+
+    auto service_cbg_mu =
+        create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    auto service_cbg_re =
+        this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+
+    // waypoint_srv_ = this->create_service<WaypointFollowerSrv>(
+    //     "waypoint_follower",
+    //     std::bind(&Nav2Service::waypointFollowerCallback, this, _1, _2, _3),
+    //     rmw_qos_profile_services_default, service_cbg_mu);
+
+    waypoint_srv_ = this->create_service<WaypointFollowerSrv>(
+        "waypoint_follower",
+        std::bind(&Nav2Service::waypointFollowerCallback, this, _1, _2, _3),
+        rmw_qos_profile_services_default, service_cbg_RE);
+
+    // waypoint_srv_ = this->create_service<WaypointFollowerSrv>(
+    //     "waypoint_follower",
+    //     std::bind(&Nav2Service::waypointFollowerCallback, this, _1, _2, _3));
+
+    std::string my_package_path = get_package_path("fitrobot");
+    std::tie(start_station, end_station) = getStartAndEndStations();
+    RCLCPP_INFO(this->get_logger(), "Start Station: %s, End Station: %s",
+                start_station.name.c_str(), end_station.name.c_str());
+
+    auto qos = rclcpp::QoS(rclcpp::KeepLast(1));
+    qos.transient_local();
+    qos.reliable();
+    target_station_pub_ =
+        this->create_publisher<FitStation>("target_station", qos);
+  }
+
+  void waypointFollowerCallback(
+      const shared_ptr<rmw_request_id_t> /*request_header*/,
+      const shared_ptr<WaypointFollowerSrv::Request> request,
+      const shared_ptr<WaypointFollowerSrv::Response> /*response*/) {
+    RCLCPP_INFO(this->get_logger(), "waypoint follower服務開始");
+    while (count_ > 0) {
+    }
+    count_++;
+    FitStation station = request->station;
+    addStation(station);
+    count_--;
+    RCLCPP_INFO(this->get_logger(), "waypoint follower服務結束");
+  }
+
+  void addStation(const FitStation &station) {
+    RCLCPP_INFO(get_logger(), "addStation start");
+    std::vector<geometry_msgs::msg::PoseStamped> poses =
+        this->createWaypointsFromStations(station);
+    nav2_client_->follow(poses);
+
+    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Triggered!!");
+
+    // GoalHandleFollowWaypoints::WrappedResult wrapped_result =
+    //     node->resultFutureFollowWaypoints_.get();
+
+    RCLCPP_INFO(get_logger(), "addStation done");
+  }
+
+  std::vector<geometry_msgs::msg::PoseStamped>
+  createWaypointsFromStations(const FitStation &st) {
+    std::vector<geometry_msgs::msg::PoseStamped> waypoints;
+    Station station = {st.type, st.name, st.x, st.y, st.z, st.w};
+    // Add station, end_station, start_station as waypoints
+    waypoints.push_back(createPose(station.x, station.y, station.z));
+    waypoints.push_back(
+        createPose(start_station.x, start_station.y, start_station.z));
+    // waypoints.push_back(
+    //     createPose(end_station.x, end_station.y, end_station.z));
+    return waypoints;
+  }
+
+  geometry_msgs::msg::PoseStamped createPose(double x, double y, double theta) {
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header.frame_id = "map";
+    pose.header.stamp = this->now();
+    pose.pose.position.x = x;
+    pose.pose.position.y = y;
+    pose.pose.orientation = toQuaternion(0.0, 0.0, theta);
+    return pose;
+  }
+
+  geometry_msgs::msg::Quaternion toQuaternion(double roll, double pitch,
+                                              double yaw) {
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, yaw);
+    return tf2::toMsg(q);
+  }
+};
+
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<Nav2Client>();
-  rclcpp::spin(node);
+  auto node = std::make_shared<Nav2Service>();
+  rclcpp::executors::MultiThreadedExecutor executor;
+  // rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+  // executor.add_node(node->nav2_client_);
+  executor.spin();
+  executor.remove_node(node);
   rclcpp::shutdown();
   return 0;
 }

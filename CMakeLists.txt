@@ -23,9 +23,9 @@ find_package(rclcpp_action REQUIRED)
 find_package(fitrobot_interfaces REQUIRED)
 
 
-add_executable(button src/button.cpp)
-target_link_libraries(button pigpiod_if2)
-ament_target_dependencies(button rclcpp std_msgs)
+# add_executable(button src/button.cpp)
+# target_link_libraries(button pigpiod_if2)
+# ament_target_dependencies(button rclcpp std_msgs)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -73,7 +73,7 @@ install(DIRECTORY include/
 )
 
 install(TARGETS
-  check_robot_status nav2_action_client button
+  check_robot_status nav2_action_client
   DESTINATION lib/${PROJECT_NAME}
 )
 

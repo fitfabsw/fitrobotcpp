@@ -73,7 +73,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             "is_localized", std::bind(&RobotStatusCheckNode::srv_localized_callback, this, _1, _2));
 
         sub_nav_to_pose_ = this->create_subscription<GoalStatusArray>(
-            "/navigate_to_pose/_action/status", 10,
+            "navigate_to_pose/_action/status", 10,
             std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1));
         sub_follow_wp_ = this->create_subscription<GoalStatusArray>(
             "follow_waypoints/_action/status", 10,
@@ -103,7 +103,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 status_log = "NAV_WF_RUNNING";
             }
             publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), status_log.c_str());
+            RCLCPP_INFO(this->get_logger(), "%s", status_log.c_str());
             this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
 
         } else if (status == GoalStatus::STATUS_SUCCEEDED) {
@@ -115,7 +115,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 status_log = "NAV_WF_ARRIVED";
             }
             publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), status_log.c_str());
+            RCLCPP_INFO(this->get_logger(), "%s", status_log.c_str());
             this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
 
         } else if (status == GoalStatus::STATUS_CANCELED) {
@@ -172,10 +172,13 @@ class RobotStatusCheckNode : public rclcpp::Node {
         response->message = "is_localized: " + std::to_string(is_localized_);
     }
 
-    bool check_tf(const std::string& from_frame, const std::string& to_frame,
-                  double timeout = 0.5) {
-        auto duration = tf2::durationFromSec(timeout);
-        bool canTransform = tf_buffer_->canTransform(from_frame, to_frame, tf2::TimePointZero,
+    bool check_tf(const std::string& to_frame, const std::string& from_frame,
+                  double timeout = 1.0) {
+        // double timeout = 0.1) {
+        // auto duration = tf2::durationFromSec(timeout);
+        // bool canTransform = tf_buffer_->canTransform(to_frame, from_frame, tf2::TimePointZero,
+        //                                              tf2::durationFromSec(timeout));
+        bool canTransform = tf_buffer_->canTransform(to_frame, from_frame, rclcpp::Time(0),
                                                      tf2::durationFromSec(timeout));
         tf_buffer_->clear();
         return canTransform;
@@ -185,13 +188,19 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
     bool is_tf_odom_map_existed() { return check_tf("map", "odom", 0.1); }
 
-    bool check_nav2_running() {
+    bool check_substring(const std::string& substring) {
         auto node_names = this->get_node_names();
-        // for (const auto &name : node_names) {
-        //   RCLCPP_INFO(this->get_logger(), "Found node: %s", name.c_str());
-        // }
-        return std::find(node_names.begin(), node_names.end(), "/bt_navigator") != node_names.end();
+        for (const auto& name : node_names) {
+            if (name.find(substring) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
     }
+
+    bool check_nav2_running() { return check_substring("bt_navigator"); }
+
+    bool check_slam_running() { return check_substring("slam_toolbox"); }
 
     void publish_status(int status) {
         auto msg = RobotStatus();
@@ -213,7 +222,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
             } else if (robot_status == RobotStatus::BRINGUP) {
                 if (check_nav2_running()) {
-                    RCLCPP_INFO(this->get_logger(), "nav_prepare");
+                    RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
                     publish_status(RobotStatus::NAV_PREPARE);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
                 } else if (!is_tf_odom_baselink_existed()) {
@@ -235,17 +244,17 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                 }
                 return;
+            }
 
-            // } else if (robot_status == RobotStatus::NAV_READY) {
-            //     if (!is_tf_odom_map_existed()) {
-            //         RCLCPP_INFO(this->get_logger(), "nav_prepare");
-            //         publish_status(RobotStatus::NAV_PREPARE);
-            //         is_localized_ = false;
-            //         this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
-            //     }
-            //     return;
-            // }
-            } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) != nav_statuses.end()) {
+            if (robot_status == RobotStatus::SLAM) {
+                if (!check_slam_running()) {
+                    RCLCPP_INFO(this->get_logger(), "bringup");
+                    publish_status(RobotStatus::BRINGUP);
+                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                }
+                return;
+            } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) !=
+                       nav_statuses.end()) {
                 if (!is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
                     publish_status(RobotStatus::NAV_PREPARE);

@@ -22,59 +22,65 @@ find_package(nav2_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(fitrobot_interfaces REQUIRED)
 
-
-# add_executable(button src/button.cpp)
-# target_link_libraries(button pigpiod_if2)
-# ament_target_dependencies(button rclcpp std_msgs)
+# add_executable(button src/button.cpp) target_link_libraries(button
+# pigpiod_if2) ament_target_dependencies(button rclcpp std_msgs)
 
 include(FetchContent)
 FetchContent_Declare(
   json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   # GIT_TAG v3.7.3
-  GIT_TAG v3.9.1  # or whatever the latest version is
+  GIT_TAG v3.9.1 # or whatever the latest version is
 )
-set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_BuildTests
+    OFF
+    CACHE INTERNAL ""
+)
 FetchContent_MakeAvailable(json)
 
 # This section will create an executable for the node
 add_executable(check_robot_status src/check_robot_status.cpp)
-ament_target_dependencies(check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces)
-
+ament_target_dependencies(
+  check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces
+)
 
 # === legacy trial-and-error code ===
-# add_library(basic_navigator_lib SHARED
-#   src/robot_navigator.cpp
-# )
-# ament_target_dependencies(basic_navigator_lib rclcpp std_srvs rclcpp_action nav2_msgs)
-# add_executable(waypoint_follower src/waypoint_follower.cpp)
-# ament_target_dependencies(waypoint_follower rclcpp tf2_ros std_srvs fitrobot_interfaces nav2_msgs)
+# add_library(basic_navigator_lib SHARED src/robot_navigator.cpp )
+# ament_target_dependencies(basic_navigator_lib rclcpp std_srvs rclcpp_action
+# nav2_msgs) add_executable(waypoint_follower src/waypoint_follower.cpp)
+# ament_target_dependencies(waypoint_follower rclcpp tf2_ros std_srvs
+# fitrobot_interfaces nav2_msgs)
 #
 # add_executable(parse_station src/parse_station.cpp)
-# ament_target_dependencies(parse_station ament_index_cpp rclcpp nav2_msgs fitrobot_interfaces)
-# target_link_libraries(parse_station nlohmann_json::nlohmann_json)
-
+# ament_target_dependencies(parse_station ament_index_cpp rclcpp nav2_msgs
+# fitrobot_interfaces) target_link_libraries(parse_station
+# nlohmann_json::nlohmann_json)
 
 add_executable(nav2_action_client src/nav2_action_client.cpp)
-ament_target_dependencies(nav2_action_client rclcpp tf2 tf2_ros tf2_geometry_msgs std_srvs nav2_msgs fitrobot_interfaces)
+ament_target_dependencies(
+  nav2_action_client
+  rclcpp
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  std_srvs
+  nav2_msgs
+  fitrobot_interfaces
+)
 
-
-# Linking Library: Link this library with any executable that needs BasicNavigator.
-# target_link_libraries(waypoint_follower basic_navigator_lib)
-
+# Linking Library: Link this library with any executable that needs
+# BasicNavigator. target_link_libraries(waypoint_follower basic_navigator_lib)
 
 include_directories(
   include
-  # ${fitrobot_interfaces_INCLUDE_DIRS}  # This line should typically be unnecessary
+  # ${fitrobot_interfaces_INCLUDE_DIRS}  # This line should typically be
+  # unnecessary
 )
 
-install(DIRECTORY include/
-  DESTINATION include
-)
+install(DIRECTORY include/ DESTINATION include)
 
-install(TARGETS
-  check_robot_status nav2_action_client
-  DESTINATION lib/${PROJECT_NAME}
+install(TARGETS check_robot_status nav2_action_client
+        DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_package()

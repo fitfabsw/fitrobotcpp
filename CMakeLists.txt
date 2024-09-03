@@ -44,6 +44,19 @@ ament_target_dependencies(
   check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces
 )
 
+add_executable(master_node src/master_node.cpp)
+ament_target_dependencies(
+  master_node
+  rclcpp
+  tf2
+  tf2_ros
+  std_msgs
+  action_msgs
+  nav2_msgs
+  std_srvs
+  fitrobot_interfaces
+)
+
 # === legacy trial-and-error code ===
 # add_library(basic_navigator_lib SHARED src/robot_navigator.cpp )
 # ament_target_dependencies(basic_navigator_lib rclcpp std_srvs rclcpp_action
@@ -79,7 +92,7 @@ include_directories(
 
 install(DIRECTORY include/ DESTINATION include)
 
-install(TARGETS check_robot_status nav2_action_client
+install(TARGETS master_node check_robot_status nav2_action_client
         DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -63,9 +63,13 @@ class MasterAsyncService : public rclcpp::Node {
             node_name_ + "/lifecycle_manager_navigation/manage_nodes",
             rmw_qos_profile_services_default, service_cbg_MU);
 
+        lfm_costmap_filter_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
+            node_name_ + "/lifecycle_manager_costmap_filters/manage_nodes",
+            rmw_qos_profile_services_default, service_cbg_MU);
+
         param_set_service_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
-            "set_other_node_parameters",
-            std::bind(&MasterAsyncService::set_parameters_callback, this, _1, _2));
+            "reconfigure_map_mask",
+            std::bind(&MasterAsyncService::reconfigure_map_mask, this, _1, _2));
 
         manage_nodes_service_ = this->create_service<std_srvs::srv::Empty>(
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2));
@@ -101,37 +105,30 @@ class MasterAsyncService : public rclcpp::Node {
     std::unordered_map<std::string, std::shared_ptr<rclcpp::AsyncParametersClient>> param_clients_;
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
         lfm_nav_client; // lifecycle_manager_navigation
-                        //
-    void reset_and_startup() {
-        RCLCPP_INFO(this->get_logger(), "manage_nodes_callback started");
-        if (!lfm_nav_client->wait_for_service(std::chrono::seconds(5))) {
+    rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
+        lfm_costmap_filter_client; // lifecycle_manager_costmap_filter
+
+    void
+    lifecycle_manage_cmd(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client,
+                         int cmd) {
+        // uint8 STARTUP = 0
+        // uint8 PAUSE = 1
+        // uint8 RESUME = 2
+        // uint8 RESET = 3
+        // uint8 SHUTDOWN = 4
+        if (!client->wait_for_service(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "ManageLifecycleNodes service not available.");
             return;
         }
         auto request_srv = std::make_shared<nav2_msgs::srv::ManageLifecycleNodes::Request>();
-        request_srv->command = 3; // 將命令設置為3
-        auto future = lfm_nav_client->async_send_request(request_srv);
-        RCLCPP_INFO(this->get_logger(), "Sent ManageLifecycleNodes request with command 3");
+        request_srv->command = cmd;
+        auto future = client->async_send_request(request_srv);
         auto status = future.wait_for(std::chrono::seconds(6));
         if (status == std::future_status::ready) {
             try {
                 auto result = future.get();
-                RCLCPP_INFO(this->get_logger(), "ManageLifecycleNodes service call succeeded.");
-            } catch (const std::exception& e) {
-                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
-            }
-        } else {
-            RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for ManageLifecycleNodes service to complete.");
-        }
-        request_srv->command = 0; // 將命令設置為3
-        future = lfm_nav_client->async_send_request(request_srv);
-        RCLCPP_INFO(this->get_logger(), "Sent ManageLifecycleNodes request with command 0");
-        status = future.wait_for(std::chrono::seconds(6));
-        if (status == std::future_status::ready) {
-            try {
-                auto result = future.get();
-                RCLCPP_INFO(this->get_logger(), "ManageLifecycleNodes service call succeeded.");
+                RCLCPP_INFO(this->get_logger(),
+                            "ManageLifecycleNodes service call succeeded. cmd=%d", cmd);
             } catch (const std::exception& e) {
                 RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
             }
@@ -141,9 +138,20 @@ class MasterAsyncService : public rclcpp::Node {
         }
     }
 
+    void
+    reset_and_startup(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
+        RCLCPP_INFO(this->get_logger(), "manage_nodes_callback started");
+        lifecycle_manage_cmd(client, 0); // in order to set parameters
+        lifecycle_manage_cmd(
+            client,
+            3); // after params are set, need to reset to re-configure parameters to take effect
+        lifecycle_manage_cmd(client, 0);
+    }
+
     void manage_nodes_callback(const std::shared_ptr<std_srvs::srv::Empty::Request> request,
                                std::shared_ptr<std_srvs::srv::Empty::Response> response) {
-        reset_and_startup();
+        reset_and_startup(lfm_nav_client);
+        reset_and_startup(lfm_costmap_filter_client);
     }
 
     // 解析環境變數並設置 robot_type_ 和 robot_id_
@@ -205,22 +213,33 @@ class MasterAsyncService : public rclcpp::Node {
         return false;
     }
 
-    void set_parameters_callback(
+    void reconfigure_map_mask(
         const std::shared_ptr<fitrobot_interfaces::srv::Navigation::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::Navigation::Response> response) {
         std::string worldname = request->worldname;
         std::string param_name = "map_topic";
         std::string param_value = "/" + worldname + "/" + robot_type_ + "/map";
+        std::string param_name2 = "mask_topic";
+        std::string param_value2 = "/" + worldname + "/" + robot_type_ + "/keepout_filter_mask";
         std::vector<std::string> nodes_to_update = {node_name_ + "/amcl",
                                                     node_name_ + "/local_costmap/local_costmap",
-                                                    node_name_ + "/global_costmap/global_costmap"};
+                                                    node_name_ + "/global_costmap/global_costmap",
+                                                    node_name_ + "/costmap_filter_info_server"};
+
+        bool success = false;
         for (const auto& node : nodes_to_update) {
-            if (!set_parameter_for_node(node, param_name, param_value)) {
+            if (node != node_name_ + "/costmap_filter_info_server") {
+                success = set_parameter_for_node(node, param_name, param_value);
+            } else {
+                success = set_parameter_for_node(node, param_name2, param_value2);
+            }
+            if (!success) {
                 RCLCPP_ERROR(this->get_logger(), "Failed to set parameter for node %s",
                              node.c_str());
             }
         }
-        reset_and_startup();
+        reset_and_startup(lfm_nav_client);
+        reset_and_startup(lfm_costmap_filter_client);
     }
 
     void navigation_callback(

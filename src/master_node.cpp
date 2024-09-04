@@ -308,6 +308,117 @@ class MasterAsyncService : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_name_.c_str());
     }
 
+    int get_robot_status() {
+        rclcpp::Parameter robot_status_param;
+        std::string prefix = "/" + robot_type_ + "_" + robot_id_ + "/";
+        if (get_parameter_for_node(prefix + "check_robot_status_node", "fitrobot_status",
+                                   robot_status_param)) {
+            if (robot_status_param.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+                int robot_status = robot_status_param.as_int();
+                RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
+                return robot_status;
+            } else {
+                RCLCPP_ERROR(this->get_logger(),
+                             "fitrobot_status parameter is not of type integer.");
+            }
+        }
+        return -1; // Return a default or error value if the parameter is not found or not an
+                   // integer
+    }
+
+    // std::string get_robot_status() {
+    //     std::string robot_status;
+    //     std::string prefix = "/" + robot_type_ + "_" + robot_id_ + "/";
+    //     if (get_parameter_for_node(prefix + "check_robot_status_node", "fitrobot_status",
+    //                                robot_status)) {
+    //         RCLCPP_INFO(this->get_logger(), "Robot status: %s", robot_status.c_str());
+    //     }
+    //     return robot_status;
+    // }
+
+    bool get_parameter_for_node(const std::string& node_name, const std::string& param_name,
+                                rclcpp::Parameter& param_value) {
+        if (param_clients_.find(node_name) == param_clients_.end()) {
+            param_clients_[node_name] =
+                std::make_shared<rclcpp::AsyncParametersClient>(this, node_name);
+        }
+        auto param_client = param_clients_[node_name];
+        if (!param_client->wait_for_service(std::chrono::seconds(2))) {
+            RCLCPP_ERROR(this->get_logger(), "Parameter service not available for node %s",
+                         node_name.c_str());
+            return false;
+        }
+        auto future = param_client->get_parameters({param_name});
+        auto status = future.wait_for(std::chrono::milliseconds(1000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                if (!result.empty()) {
+                    param_value = result[0]; // Save the parameter value
+                    RCLCPP_INFO(this->get_logger(), "Successfully got parameter %s from node %s",
+                                param_name.c_str(), node_name.c_str());
+                    return true;
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to get parameter %s from node %s",
+                                 param_name.c_str(), node_name.c_str());
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter get operation to complete.");
+        }
+        return false;
+    }
+
+    // bool get_parameter_for_node(const std::string& node_name, const std::string& param_name,
+    //                             std::string& param_value) {
+    //     if (param_clients_.find(node_name) == param_clients_.end()) {
+    //         param_clients_[node_name] =
+    //             std::make_shared<rclcpp::AsyncParametersClient>(this, node_name);
+    //     }
+    //     auto param_client = param_clients_[node_name];
+    //     if (!param_client->wait_for_service(std::chrono::seconds(2))) {
+    //         RCLCPP_ERROR(this->get_logger(), "Parameter service not available for node %s",
+    //                      node_name.c_str());
+    //         return false;
+    //     }
+    //     auto future = param_client->get_parameters({param_name});
+    //     auto status = future.wait_for(std::chrono::milliseconds(1000));
+    //     if (status == std::future_status::ready) {
+    //         try {
+    //             auto result = future.get();
+    //             if (!result.empty()) {
+    //                 if (result[0].get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+    //                     param_value = std::to_string(result[0].as_int());
+    //                     RCLCPP_INFO(this->get_logger(),
+    //                                 "Successfully got parameter %s with value %s from node %s",
+    //                                 param_name.c_str(), param_value.c_str(), node_name.c_str());
+    //                     return true;
+    //                 } else if (result[0].get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
+    //                     param_value = result[0].as_string();
+    //                     RCLCPP_INFO(this->get_logger(),
+    //                                 "Successfully got parameter %s with value %s from node %s",
+    //                                 param_name.c_str(), param_value.c_str(), node_name.c_str());
+    //                     return true;
+    //                 } else {
+    //                     RCLCPP_ERROR(
+    //                         this->get_logger(),
+    //                         "Failed to get parameter or wrong parameter type for %s on node %s",
+    //                         param_name.c_str(), node_name.c_str());
+    //                 }
+    //             }
+    //         } catch (const std::exception& e) {
+    //             RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+    //         }
+    //     } else {
+    //         RCLCPP_ERROR(this->get_logger(),
+    //                      "Timeout while waiting for the parameter get operation to complete.");
+    //     }
+    //     return false;
+    // }
+
     bool set_parameter_for_node(const std::string& node_name, const std::string& param_name,
                                 const std::string& param_value) {
         if (param_clients_.find(node_name) == param_clients_.end()) {
@@ -406,8 +517,9 @@ class MasterAsyncService : public rclcpp::Node {
     void slam_callback(const std::shared_ptr<fitrobot_interfaces::srv::Slam::Request> request,
                        std::shared_ptr<fitrobot_interfaces::srv::Slam::Response> response) {
         RCLCPP_INFO(this->get_logger(), "slam_callback started");
-        // Implementation of SLAM callback
-        clean_up();
+        // clean_up();
+        int robot_status = get_robot_status();
+        RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
         RCLCPP_INFO(this->get_logger(), "slam_callback finished");
     }
 

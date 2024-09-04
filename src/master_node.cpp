@@ -113,30 +113,19 @@ class MasterAsyncService : public rclcpp::Node {
         lfm_costmap_filter_client; // lifecycle_manager_costmap_filter
 
     void shutdown_launch_service() {
-        // std::this_thread::sleep_for(std::chrono::seconds(2)); // 模擬等待時間
-        if (launch_service_pid != -1) {
+        if (launch_service_active && launch_service_pid > 0) {
             RCLCPP_INFO(this->get_logger(), "Shutting down launch service with PID: %d",
                         launch_service_pid);
 
-            // Send SIGTERM to gracefully terminate the process
-            kill(launch_service_pid, SIGTERM);
+            // Terminate the entire process group
+            terminate_process_group(launch_service_pid);
 
-            // Optionally wait for the process to terminate
-            int status;
-            pid_t result = waitpid(launch_service_pid, &status, 0);
-            if (result == -1) {
-                RCLCPP_ERROR(this->get_logger(),
-                             "Failed to wait for the launch service process termination.");
-            } else {
-                RCLCPP_INFO(this->get_logger(), "Launch service process terminated successfully.");
-            }
-
-            // Reset the PID since the process has been terminated
+            // Reset launch service status
+            launch_service_active = false;
             launch_service_pid = -1;
         } else {
             RCLCPP_WARN(this->get_logger(), "No active launch service to shut down.");
         }
-        RCLCPP_INFO(this->get_logger(), "Launch service has been shut down.");
     }
 
     void clean_up(bool ensure_bringup = true) {
@@ -185,6 +174,8 @@ class MasterAsyncService : public rclcpp::Node {
                                const std::vector<std::string>& args) {
         pid_t pid = fork();
         if (pid == 0) {
+            // 子進程：設置新的進程組 ID
+            setpgid(0, 0);
             std::ostringstream launch_command;
             std::string source_prefix = "source ~/simulations/install/setup.bash && ";
             launch_command << source_prefix << "ros2 launch " << package_name << " " << launch_file;
@@ -194,15 +185,41 @@ class MasterAsyncService : public rclcpp::Node {
             std::string command_str = launch_command.str();
             const char* command = command_str.c_str();
             RCLCPP_INFO(this->get_logger(), "Launching command: %s", command);
+            // 使用 execl 執行 bash 命令
             execl("/bin/bash", "bash", "-c", command, (char*)nullptr);
+            // 如果 execl 返回，則表示出現錯誤
             _exit(EXIT_FAILURE);
         } else if (pid < 0) {
+            // 父進程：處理 fork 失敗的情況
             RCLCPP_ERROR(this->get_logger(), "Failed to fork a new process for launch command.");
         } else {
-            launch_service_pid = pid;     // 設置全局PID為子進程的PID
-            launch_service_active = true; // 設置為活動狀態
+            // 父進程：成功創建子進程，設置全局 PID 為子進程的 PID
+            launch_service_pid = pid;
+            launch_service_active = true;
+            // 設置子進程的進程組 ID 與子進程本身相同
+            setpgid(pid, pid);
             RCLCPP_INFO(this->get_logger(), "Successfully launched %s with launch file %s. PID: %d",
-                        package_name.c_str(), launch_file.c_str(), launch_service_pid);
+                        package_name.c_str(), launch_file.c_str(), pid);
+        }
+    }
+
+    // 用於終止進程組的函數
+    void terminate_process_group(pid_t pid) {
+        if (pid <= 0)
+            return;
+        // 使用負的 PID 來表示進程組 ID
+        if (kill(-pid, SIGTERM) == 0) {
+            RCLCPP_INFO(this->get_logger(), "Successfully sent SIGTERM to process group %d", pid);
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Failed to send SIGTERM to process group %d: %s", pid,
+                         strerror(errno));
+        }
+        // 可選：使用 SIGKILL 強制終止所有進程
+        if (kill(-pid, SIGKILL) == 0) {
+            RCLCPP_INFO(this->get_logger(), "Successfully sent SIGKILL to process group %d", pid);
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Failed to send SIGKILL to process group %d: %s", pid,
+                         strerror(errno));
         }
     }
 

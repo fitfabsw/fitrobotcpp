@@ -16,6 +16,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/empty.hpp>
 #include <string>
+#include <sys/wait.h>
 #include <unordered_map>
 
 using std::placeholders::_1;
@@ -35,8 +36,8 @@ class MasterAsyncService : public rclcpp::Node {
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
 
         // Publishers and services
-        status_pub_ =
-            this->create_publisher<fitrobot_interfaces::msg::RobotStatus>("robot_status", qos);
+        // status_pub_ =
+        //     this->create_publisher<fitrobot_interfaces::msg::RobotStatus>("robot_status", qos);
 
         nav_srv_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
             "navigation", std::bind(&MasterAsyncService::navigation_callback, this, _1, _2));
@@ -91,9 +92,12 @@ class MasterAsyncService : public rclcpp::Node {
     std::string robot_type_;
     std::string robot_id_;
     std::string node_name_;
+    bool use_sim;
+    bool launch_service_active;
+    pid_t launch_service_pid; // PID of the launch service process
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
-    rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr status_pub_;
+    // rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr status_pub_;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr nav_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::Slam>::SharedPtr slam_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::RemoteControl>::SharedPtr remote_control_srv_;
@@ -107,6 +111,100 @@ class MasterAsyncService : public rclcpp::Node {
         lfm_nav_client; // lifecycle_manager_navigation
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
         lfm_costmap_filter_client; // lifecycle_manager_costmap_filter
+
+    void shutdown_launch_service() {
+        // std::this_thread::sleep_for(std::chrono::seconds(2)); // 模擬等待時間
+        if (launch_service_pid != -1) {
+            RCLCPP_INFO(this->get_logger(), "Shutting down launch service with PID: %d",
+                        launch_service_pid);
+
+            // Send SIGTERM to gracefully terminate the process
+            kill(launch_service_pid, SIGTERM);
+
+            // Optionally wait for the process to terminate
+            int status;
+            pid_t result = waitpid(launch_service_pid, &status, 0);
+            if (result == -1) {
+                RCLCPP_ERROR(this->get_logger(),
+                             "Failed to wait for the launch service process termination.");
+            } else {
+                RCLCPP_INFO(this->get_logger(), "Launch service process terminated successfully.");
+            }
+
+            // Reset the PID since the process has been terminated
+            launch_service_pid = -1;
+        } else {
+            RCLCPP_WARN(this->get_logger(), "No active launch service to shut down.");
+        }
+        RCLCPP_INFO(this->get_logger(), "Launch service has been shut down.");
+    }
+
+    void clean_up(bool ensure_bringup = true) {
+        if (launch_service_active) {
+            RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
+            shutdown_launch_service();
+            // if (ensure_bringup) {
+            //     auto check_status_future = std::async(std::launch::async, [this]() {
+            //         // 模擬檢查機器人狀態直到它回到 BRINGUP
+            //         while (rclcpp::ok()) {
+            //             int robot_status = send_get_parameters_request();
+            //             if (robot_status == 1) {
+            //                 break;
+            //             }
+            //             std::this_thread::sleep_for(std::chrono::seconds(1));
+            //         }
+            //     });
+            //     check_status_future.get();
+            //     RCLCPP_INFO(this->get_logger(), "clean_up: done. robot_status back to BRINGUP");
+            // }
+            launch_service_active = false;
+        }
+    }
+
+    // void launch_function(const std::string& package_name, const std::string& launch_file,
+    //                      const std::vector<std::string>& args) {
+    //     std::ostringstream launch_command;
+    //     std::string source_prefix = "bash -c 'source ~/simulations/install/setup.bash && ";
+    //     launch_command << source_prefix << "ros2 launch " << package_name << " " << launch_file;
+    //     for (const auto& arg : args) {
+    //         launch_command << " " << arg;
+    //     }
+    //     launch_command << "'"; // 結束 bash -c 的命令
+    //     RCLCPP_INFO(this->get_logger(), "Launching command: %s", launch_command.str().c_str());
+    //     int result = std::system(launch_command.str().c_str());
+    //     if (result != 0) {
+    //         RCLCPP_ERROR(this->get_logger(), "Failed to launch %s with launch file %s",
+    //                      package_name.c_str(), launch_file.c_str());
+    //     } else {
+    //         RCLCPP_INFO(this->get_logger(), "Successfully launched %s with launch file %s",
+    //                     package_name.c_str(), launch_file.c_str());
+    //     }
+    // }
+
+    void launch_function_async(const std::string& package_name, const std::string& launch_file,
+                               const std::vector<std::string>& args) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            std::ostringstream launch_command;
+            std::string source_prefix = "source ~/simulations/install/setup.bash && ";
+            launch_command << source_prefix << "ros2 launch " << package_name << " " << launch_file;
+            for (const auto& arg : args) {
+                launch_command << " " << arg;
+            }
+            std::string command_str = launch_command.str();
+            const char* command = command_str.c_str();
+            RCLCPP_INFO(this->get_logger(), "Launching command: %s", command);
+            execl("/bin/bash", "bash", "-c", command, (char*)nullptr);
+            _exit(EXIT_FAILURE);
+        } else if (pid < 0) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to fork a new process for launch command.");
+        } else {
+            launch_service_pid = pid;     // 設置全局PID為子進程的PID
+            launch_service_active = true; // 設置為活動狀態
+            RCLCPP_INFO(this->get_logger(), "Successfully launched %s with launch file %s. PID: %d",
+                        package_name.c_str(), launch_file.c_str(), launch_service_pid);
+        }
+    }
 
     void
     lifecycle_manage_cmd(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client,
@@ -170,6 +268,9 @@ class MasterAsyncService : public rclcpp::Node {
         std::stringstream robot_ss(first_robot_info);
         std::getline(robot_ss, robot_type_, ':'); // 取得機器人類型
         std::getline(robot_ss, robot_id_, ':');   // 取得機器人序號
+
+        use_sim = atoi(std::getenv("USE_SIM")) == 1 ? true : false;
+        RCLCPP_INFO(this->get_logger(), "use_sim: %s", use_sim ? "true" : "false");
 
         node_name_ = "/" + robot_type_ + "_" + robot_id_;
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_name_.c_str());
@@ -242,11 +343,31 @@ class MasterAsyncService : public rclcpp::Node {
         reset_and_startup(lfm_costmap_filter_client);
     }
 
+    // void run_navigation(std::string worldname) {
+    //     std::string package_name = "linorobot2_navigation";
+    //     std::string launch_file = "nav.launch.py";
+    //     std::vector<std::string> args = {
+    //         "worldname:=" + worldname, "sim:=" + std::string(use_sim ? "true" : "false"),
+    //         "rviz:=false", std::string("namespace:=") + "/" + robot_type_ + "_" + robot_id_};
+    //     launch_function(package_name, launch_file, args);
+    // }
+
+    void run_navigation_async(std::string worldname) {
+        std::string package_name = "linorobot2_navigation";
+        std::string launch_file = "nav.launch.py";
+        std::vector<std::string> args = {
+            "worldname:=" + worldname, "sim:=" + std::string(use_sim ? "true" : "false"),
+            "rviz:=false", std::string("namespace:=") + "/" + robot_type_ + "_" + robot_id_};
+        launch_function_async(package_name, launch_file, args);
+    }
+
     void navigation_callback(
         const std::shared_ptr<fitrobot_interfaces::srv::Navigation::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::Navigation::Response> response) {
         RCLCPP_INFO(this->get_logger(), "navigation_callback started");
         // Implementation of navigation callback
+        // run_navigation(request->worldname);
+        run_navigation_async(request->worldname);
         RCLCPP_INFO(this->get_logger(), "navigation_callback finished");
     }
 
@@ -254,6 +375,7 @@ class MasterAsyncService : public rclcpp::Node {
                        std::shared_ptr<fitrobot_interfaces::srv::Slam::Response> response) {
         RCLCPP_INFO(this->get_logger(), "slam_callback started");
         // Implementation of SLAM callback
+        clean_up();
         RCLCPP_INFO(this->get_logger(), "slam_callback finished");
     }
 

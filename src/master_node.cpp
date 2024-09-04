@@ -35,10 +35,6 @@ class MasterAsyncService : public rclcpp::Node {
         // QoS settings
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
 
-        // Publishers and services
-        // status_pub_ =
-        //     this->create_publisher<fitrobot_interfaces::msg::RobotStatus>("robot_status", qos);
-
         nav_srv_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
             "navigation", std::bind(&MasterAsyncService::navigation_callback, this, _1, _2));
 
@@ -74,9 +70,6 @@ class MasterAsyncService : public rclcpp::Node {
 
         manage_nodes_service_ = this->create_service<std_srvs::srv::Empty>(
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2));
-        // "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
-        // rmw_qos_profile_services_default, service_cbg_MU);
-        // rmw_qos_profile_services_default, service_cbg_RE);
 
         // Handle environment variables
         char* robot_info = std::getenv("ROBOT_INFO");
@@ -105,13 +98,11 @@ class MasterAsyncService : public rclcpp::Node {
     pid_t launch_service_pid; // PID of the launch service process
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
-    // rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr status_pub_;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr nav_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::Slam>::SharedPtr slam_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::RemoteControl>::SharedPtr remote_control_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::TerminateProcess>::SharedPtr terminate_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::SubscriptionCount>::SharedPtr subscription_count_srv_;
-    // rclcpp::Service<std_srvs::srv::Empty>::SharedPtr param_set_service_;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr param_set_service_;
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr manage_nodes_service_;
     std::unordered_map<std::string, std::shared_ptr<rclcpp::AsyncParametersClient>> param_clients_;
@@ -157,26 +148,6 @@ class MasterAsyncService : public rclcpp::Node {
             launch_service_active = false;
         }
     }
-
-    // void launch_function(const std::string& package_name, const std::string& launch_file,
-    //                      const std::vector<std::string>& args) {
-    //     std::ostringstream launch_command;
-    //     std::string source_prefix = "bash -c 'source ~/simulations/install/setup.bash && ";
-    //     launch_command << source_prefix << "ros2 launch " << package_name << " " << launch_file;
-    //     for (const auto& arg : args) {
-    //         launch_command << " " << arg;
-    //     }
-    //     launch_command << "'"; // 結束 bash -c 的命令
-    //     RCLCPP_INFO(this->get_logger(), "Launching command: %s", launch_command.str().c_str());
-    //     int result = std::system(launch_command.str().c_str());
-    //     if (result != 0) {
-    //         RCLCPP_ERROR(this->get_logger(), "Failed to launch %s with launch file %s",
-    //                      package_name.c_str(), launch_file.c_str());
-    //     } else {
-    //         RCLCPP_INFO(this->get_logger(), "Successfully launched %s with launch file %s",
-    //                     package_name.c_str(), launch_file.c_str());
-    //     }
-    // }
 
     void launch_function_async(const std::string& package_name, const std::string& launch_file,
                                const std::vector<std::string>& args) {
@@ -326,16 +297,6 @@ class MasterAsyncService : public rclcpp::Node {
                    // integer
     }
 
-    // std::string get_robot_status() {
-    //     std::string robot_status;
-    //     std::string prefix = "/" + robot_type_ + "_" + robot_id_ + "/";
-    //     if (get_parameter_for_node(prefix + "check_robot_status_node", "fitrobot_status",
-    //                                robot_status)) {
-    //         RCLCPP_INFO(this->get_logger(), "Robot status: %s", robot_status.c_str());
-    //     }
-    //     return robot_status;
-    // }
-
     bool get_parameter_for_node(const std::string& node_name, const std::string& param_name,
                                 rclcpp::Parameter& param_value) {
         if (param_clients_.find(node_name) == param_clients_.end()) {
@@ -371,53 +332,6 @@ class MasterAsyncService : public rclcpp::Node {
         }
         return false;
     }
-
-    // bool get_parameter_for_node(const std::string& node_name, const std::string& param_name,
-    //                             std::string& param_value) {
-    //     if (param_clients_.find(node_name) == param_clients_.end()) {
-    //         param_clients_[node_name] =
-    //             std::make_shared<rclcpp::AsyncParametersClient>(this, node_name);
-    //     }
-    //     auto param_client = param_clients_[node_name];
-    //     if (!param_client->wait_for_service(std::chrono::seconds(2))) {
-    //         RCLCPP_ERROR(this->get_logger(), "Parameter service not available for node %s",
-    //                      node_name.c_str());
-    //         return false;
-    //     }
-    //     auto future = param_client->get_parameters({param_name});
-    //     auto status = future.wait_for(std::chrono::milliseconds(1000));
-    //     if (status == std::future_status::ready) {
-    //         try {
-    //             auto result = future.get();
-    //             if (!result.empty()) {
-    //                 if (result[0].get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
-    //                     param_value = std::to_string(result[0].as_int());
-    //                     RCLCPP_INFO(this->get_logger(),
-    //                                 "Successfully got parameter %s with value %s from node %s",
-    //                                 param_name.c_str(), param_value.c_str(), node_name.c_str());
-    //                     return true;
-    //                 } else if (result[0].get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
-    //                     param_value = result[0].as_string();
-    //                     RCLCPP_INFO(this->get_logger(),
-    //                                 "Successfully got parameter %s with value %s from node %s",
-    //                                 param_name.c_str(), param_value.c_str(), node_name.c_str());
-    //                     return true;
-    //                 } else {
-    //                     RCLCPP_ERROR(
-    //                         this->get_logger(),
-    //                         "Failed to get parameter or wrong parameter type for %s on node %s",
-    //                         param_name.c_str(), node_name.c_str());
-    //                 }
-    //             }
-    //         } catch (const std::exception& e) {
-    //             RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
-    //         }
-    //     } else {
-    //         RCLCPP_ERROR(this->get_logger(),
-    //                      "Timeout while waiting for the parameter get operation to complete.");
-    //     }
-    //     return false;
-    // }
 
     bool set_parameter_for_node(const std::string& node_name, const std::string& param_name,
                                 const std::string& param_value) {
@@ -486,15 +400,6 @@ class MasterAsyncService : public rclcpp::Node {
         reset_and_startup(lfm_costmap_filter_client);
     }
 
-    // void run_navigation(std::string worldname) {
-    //     std::string package_name = "linorobot2_navigation";
-    //     std::string launch_file = "nav.launch.py";
-    //     std::vector<std::string> args = {
-    //         "worldname:=" + worldname, "sim:=" + std::string(use_sim ? "true" : "false"),
-    //         "rviz:=false", std::string("namespace:=") + "/" + robot_type_ + "_" + robot_id_};
-    //     launch_function(package_name, launch_file, args);
-    // }
-
     void run_navigation_async(std::string worldname) {
         // std::string package_name = "linorobot2_navigation";
         std::string launch_file = "nav.launch.py";
@@ -509,7 +414,6 @@ class MasterAsyncService : public rclcpp::Node {
         std::shared_ptr<fitrobot_interfaces::srv::Navigation::Response> response) {
         RCLCPP_INFO(this->get_logger(), "navigation_callback started");
         // Implementation of navigation callback
-        // run_navigation(request->worldname);
         run_navigation_async(request->worldname);
         RCLCPP_INFO(this->get_logger(), "navigation_callback finished");
     }

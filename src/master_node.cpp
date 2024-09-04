@@ -86,12 +86,20 @@ class MasterAsyncService : public rclcpp::Node {
         }
 
         // Further initialization...
+        std::unordered_map<std::string, std::string> package_names = {
+            {"artic", "articubot_one"}, {"lino2", "linorobot2_navigation"}};
+        if (package_names.find(robot_type_) != package_names.end()) {
+            package_name = package_names[robot_type_];
+        } else {
+            throw std::invalid_argument("Unknown robot type: " + robot_type_);
+        }
     }
 
   private:
     std::string robot_type_;
     std::string robot_id_;
     std::string node_name_;
+    std::string package_name;
     bool use_sim;
     bool launch_service_active;
     pid_t launch_service_pid; // PID of the launch service process
@@ -286,7 +294,14 @@ class MasterAsyncService : public rclcpp::Node {
         std::getline(robot_ss, robot_type_, ':'); // 取得機器人類型
         std::getline(robot_ss, robot_id_, ':');   // 取得機器人序號
 
-        use_sim = atoi(std::getenv("USE_SIM")) == 1 ? true : false;
+        const char* use_sim_env = std::getenv("USE_SIM");
+        if (use_sim_env != nullptr) {
+            use_sim = atoi(use_sim_env) == 1;
+        } else {
+            RCLCPP_WARN(this->get_logger(),
+                        "Environment variable USE_SIM is not set. Defaulting to false.");
+            use_sim = false; // 默認值
+        }
         RCLCPP_INFO(this->get_logger(), "use_sim: %s", use_sim ? "true" : "false");
 
         node_name_ = "/" + robot_type_ + "_" + robot_id_;
@@ -370,7 +385,7 @@ class MasterAsyncService : public rclcpp::Node {
     // }
 
     void run_navigation_async(std::string worldname) {
-        std::string package_name = "linorobot2_navigation";
+        // std::string package_name = "linorobot2_navigation";
         std::string launch_file = "nav.launch.py";
         std::vector<std::string> args = {
             "worldname:=" + worldname, "sim:=" + std::string(use_sim ? "true" : "false"),

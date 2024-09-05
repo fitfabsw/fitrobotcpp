@@ -290,20 +290,77 @@ class MasterAsyncService : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
     }
 
+    // int get_robot_status() {
+    //     rclcpp::Parameter robot_status_param;
+    //     if (get_parameter_for_node(node_namespace + "/check_robot_status_node",
+    //     "fitrobot_status",
+    //                                robot_status_param)) {
+    //         if (robot_status_param.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+    //             int robot_status = robot_status_param.as_int();
+    //             RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
+    //             return robot_status;
+    //         } else {
+    //             RCLCPP_ERROR(this->get_logger(),
+    //                          "fitrobot_status parameter is not of type integer.");
+    //         }
+    //     }
+    //     return -1; // Return a default or error value if the parameter is not found or not an
+    //                // integer
+    // }
+
     int get_robot_status() {
-        rclcpp::Parameter robot_status_param;
-        if (get_parameter_for_node(node_namespace + "/check_robot_status_node", "fitrobot_status",
-                                   robot_status_param)) {
-            if (robot_status_param.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
-                int robot_status = robot_status_param.as_int();
-                RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
-                return robot_status;
+        return get_parameter_int(node_namespace + "/check_robot_status_node", "fitrobot_status");
+    }
+
+    bool get_sim_time(const std::string& node_nmae) {
+        return get_parameter_bool(node_nmae, "use_sim_time");
+    }
+
+    int get_parameter_int(const std::string& node_name, const std::string& param_name) {
+        rclcpp::Parameter param_value;
+        if (get_parameter_for_node(node_name, param_name, param_value)) {
+            if (param_value.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+                return param_value.as_int();
             } else {
-                RCLCPP_ERROR(this->get_logger(),
-                             "fitrobot_status parameter is not of type integer.");
+                RCLCPP_ERROR(this->get_logger(), "%s parameter is not of type integer.",
+                             param_name.c_str());
             }
         }
+        RCLCPP_ERROR(this->get_logger(), "Failed to get parameter %s from node %s",
+                     param_name.c_str(), node_name.c_str());
         return -1; // Return a default or error value if the parameter is not found or not an
+                   // integer
+    }
+
+    bool get_parameter_bool(const std::string& node_name, const std::string& param_name) {
+        rclcpp::Parameter param_value;
+        if (get_parameter_for_node(node_name, param_name, param_value)) {
+            if (param_value.get_type() == rclcpp::ParameterType::PARAMETER_BOOL) {
+                return param_value.as_bool();
+            } else {
+                RCLCPP_ERROR(this->get_logger(), "%s parameter is not of type bool.",
+                             param_name.c_str());
+            }
+        }
+        RCLCPP_ERROR(this->get_logger(), "Failed to get parameter %s from node %s",
+                     param_name.c_str(), node_name.c_str());
+        return false; // Return a default or error value if the parameter is not found or not an
+                      // integer
+    }
+
+    std::string get_parameter_string(const std::string& node_name, const std::string& param_name) {
+        rclcpp::Parameter param_value;
+        if (get_parameter_for_node(node_name, param_name, param_value)) {
+            if (param_value.get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
+                return param_value.as_string();
+            } else {
+                RCLCPP_ERROR(this->get_logger(), "%s parameter is not of type string.",
+                             param_name.c_str());
+            }
+        }
+        RCLCPP_ERROR(this->get_logger(), "Failed to get parameter %s from node %s",
+                     param_name.c_str(), node_name.c_str());
+        return ""; // Return a default or error value if the parameter is not found or not an
                    // integer
     }
 
@@ -453,9 +510,19 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<fitrobot_interfaces::srv::RemoteControl::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::RemoteControl::Response> response) {
         RCLCPP_INFO(this->get_logger(), "remote_control_callback started");
+
         RCLCPP_INFO(this->get_logger(), "get parameters tested (temp)");
+
         int robot_status = get_robot_status();
         RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
+
+        bool sim_time = get_sim_time(node_namespace + "/amcl");
+        RCLCPP_INFO(this->get_logger(), "sim_time: %s", sim_time ? "true" : "false");
+
+        std::string frame_id =
+            get_parameter_string("/turtlebot3_world/lino2/map_server", "frame_id");
+        RCLCPP_INFO(this->get_logger(), "frame_id: %s", frame_id.c_str());
+
         RCLCPP_INFO(this->get_logger(), "remote_control_callback finished");
     }
 

@@ -21,7 +21,6 @@
 
 using std::placeholders::_1;
 using std::placeholders::_2;
-// using std::placeholders::_3;
 
 class MasterAsyncService : public rclcpp::Node {
   public:
@@ -279,24 +278,6 @@ class MasterAsyncService : public rclcpp::Node {
         node_namespace = "/" + robot_type + "_" + robot_sn;
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
     }
-
-    // int get_robot_status() {
-    //     rclcpp::Parameter robot_status_param;
-    //     if (get_parameter_for_node(node_namespace + "/check_robot_status_node",
-    //     "fitrobot_status",
-    //                                robot_status_param)) {
-    //         if (robot_status_param.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
-    //             int robot_status = robot_status_param.as_int();
-    //             RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
-    //             return robot_status;
-    //         } else {
-    //             RCLCPP_ERROR(this->get_logger(),
-    //                          "fitrobot_status parameter is not of type integer.");
-    //         }
-    //     }
-    //     return -1; // Return a default or error value if the parameter is not found or not an
-    //                // integer
-    // }
 
     int get_robot_status() {
         return get_parameter_int(node_namespace + "/check_robot_status_node", "fitrobot_status");

@@ -39,7 +39,6 @@ class MasterAsyncService : public rclcpp::Node {
         nav_srv_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
             "navigation", std::bind(&MasterAsyncService::navigation_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // "navigation", std::bind(&MasterAsyncService::navigation_callback, this, _1, _2));
 
         slam_srv_ = this->create_service<fitrobot_interfaces::srv::Slam>(
             "slam", std::bind(&MasterAsyncService::slam_callback, this, _1, _2),
@@ -48,19 +47,16 @@ class MasterAsyncService : public rclcpp::Node {
         remote_control_srv_ = this->create_service<fitrobot_interfaces::srv::RemoteControl>(
             "remote_control", std::bind(&MasterAsyncService::remote_control_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // std::bind(&MasterAsyncService::remote_control_callback, this, _1, _2));
 
         terminate_srv_ = this->create_service<fitrobot_interfaces::srv::TerminateProcess>(
             "terminate_slam_or_navigation",
             std::bind(&MasterAsyncService::terminate_slam_or_navigation_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // std::bind(&MasterAsyncService::terminate_slam_or_navigation_callback, this, _1, _2));
 
         subscription_count_srv_ = this->create_service<fitrobot_interfaces::srv::SubscriptionCount>(
             "subscription_count",
             std::bind(&MasterAsyncService::subscription_count_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // std::bind(&MasterAsyncService::subscription_count_callback, this, _1, _2));
 
         lfm_nav_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
             node_namespace + "/lifecycle_manager_navigation/manage_nodes",
@@ -74,12 +70,10 @@ class MasterAsyncService : public rclcpp::Node {
             "reconfigure_map_mask",
             std::bind(&MasterAsyncService::reconfigure_map_mask, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // std::bind(&MasterAsyncService::reconfigure_map_mask, this, _1, _2));
 
         manage_nodes_service_ = this->create_service<std_srvs::srv::Empty>(
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2));
 
         // Handle environment variables
         char* robot_info = std::getenv("ROBOT_INFO");
@@ -142,20 +136,16 @@ class MasterAsyncService : public rclcpp::Node {
         if (launch_service_active) {
             RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
             shutdown_launch_service();
-            // if (ensure_bringup) {
-            //     auto check_status_future = std::async(std::launch::async, [this]() {
-            //         // 模擬檢查機器人狀態直到它回到 BRINGUP
-            //         while (rclcpp::ok()) {
-            //             int robot_status = send_get_parameters_request();
-            //             if (robot_status == 1) {
-            //                 break;
-            //             }
-            //             std::this_thread::sleep_for(std::chrono::seconds(1));
-            //         }
-            //     });
-            //     check_status_future.get();
-            //     RCLCPP_INFO(this->get_logger(), "clean_up: done. robot_status back to BRINGUP");
-            // }
+            if (ensure_bringup) {
+                while (1) {
+                    int robot_status = get_robot_status();
+                    if (robot_status == 1) {
+                        break;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                RCLCPP_INFO(this->get_logger(), "clean_up: done. robot_status back to BRINGUP");
+            }
             launch_service_active = false;
         }
     }
@@ -482,7 +472,6 @@ class MasterAsyncService : public rclcpp::Node {
     }
 
     void run_navigation_async(std::string worldname) {
-        // std::string package_name = "linorobot2_navigation";
         std::string launch_file = "nav.launch.py";
         std::vector<std::string> args = {"worldname:=" + worldname,
                                          "sim:=" + std::string(use_sim ? "true" : "false"),
@@ -494,15 +483,23 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<fitrobot_interfaces::srv::Navigation::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::Navigation::Response> response) {
         RCLCPP_INFO(this->get_logger(), "navigation_callback started");
-        // Implementation of navigation callback
+        clean_up();
         run_navigation_async(request->worldname);
         RCLCPP_INFO(this->get_logger(), "navigation_callback finished");
+    }
+
+    void run_slam_async() {
+        std::string launch_file = "slam.launch.py";
+        std::vector<std::string> args = {"sim:=" + std::string(use_sim ? "true" : "false"),
+                                         "rviz:=false"};
+        launch_function_async(package_name, launch_file, args);
     }
 
     void slam_callback(const std::shared_ptr<fitrobot_interfaces::srv::Slam::Request> request,
                        std::shared_ptr<fitrobot_interfaces::srv::Slam::Response> response) {
         RCLCPP_INFO(this->get_logger(), "slam_callback started");
         clean_up();
+        run_slam_async();
         RCLCPP_INFO(this->get_logger(), "slam_callback finished");
     }
 
@@ -531,8 +528,10 @@ class MasterAsyncService : public rclcpp::Node {
         std::shared_ptr<fitrobot_interfaces::srv::TerminateProcess::Response> response) {
         RCLCPP_INFO(this->get_logger(), "terminate_slam_or_navigation_callback started");
 
-        rclcpp::Parameter param("use_sim_time", true);
-        set_parameter_for_node(node_namespace + "/amcl", param);
+        clean_up();
+        response->success = true;
+        // rclcpp::Parameter param("use_sim_time", true);
+        // set_parameter_for_node(node_namespace + "/amcl", param);
 
         response->success = true;
         RCLCPP_INFO(this->get_logger(), "terminate_slam_or_navigation_callback finished");

@@ -257,63 +257,6 @@ ros2 action send_goal /dock_robot opennav_docking_msgs/action/DockRobot "{dock_i
 | v       | single   | keepout    | single     | combined |
 | v       |          | no-keepout |            | combined |
 
-#### fitrobot services
-
-##### services on central pc
-
-Before using the services, you need to define ROBOT_INFO environment variable first.
-
-ex: ROBOT_INFO="lino2:13a5;lino2:13a6"
-
-- first robot
-  robot_type: lino2
-  robot_sn: 13a5
-  robot_namespace: /lino2_13a5
-
-- second robot
-  robot_type: lino2
-  robot_sn: 13a6
-  robot_namespace: /lino2_13a6
-
-These info will be used for sim.launch.py to generate the robots in gazebo.
-
-The first robot_namespace is used for all the services for each robot.
-
-###### bringup
-
-ROBOT_INFO="lino2:13a5:0.0:0.5;artic:29f4:0.0:-0.5" ros2 launch fitrobot sim.launch.py
-
-###### map
-
-ros2 launch fitrobot map.launch.py sim:=true worldname:=turtlebot3_world use_mask:=true
-
-##### services on each robot
-
-###### check_robot_status
-
-`ros2 run fitrobotcpp check_robot_status --ros-args -r __ns:=/lino2_13a5 -r /tf:=tf -r /tf_static:=tf_static`
-
-###### master
-
-ros2 run fitrobotcpp master_node --ros-args -p use_sim_time:=true
-
-- services provided by master_node
-
-  - call navigation service provided by master_node
-    ros2 service call /lino2_ab12/navigation fitrobot_interfaces/srv/Navigation "{worldname: turtlebot3_world}"
-
-    - rviz
-      ros2 launch linorobot2_navigation rviz_launch.py worldname:=turtlebot3_world
-
-  - call slam
-    ros2 service call /lino2_ab12/slam fitrobot_interfaces/srv/Slam {}
-
-    - rviz
-      ros2 launch linorobot2_navigation rviz_launch.py
-
-  - call termination
-    ros2 service call /lino2_ab12/terminate_slam_or_navigation fitrobot_interfaces/srv/TerminateProcess {}
-
 ## artic
 
 ### real
@@ -337,3 +280,90 @@ ros2 run fitrobotcpp master_node --ros-args -p use_sim_time:=true
 | v       |          | no-keepout |            | combined |
 | v       | single   | keepout    | single     | combined |
 | v       |          | no-keepout |            | combined |
+
+# fitrobot services
+
+## Lino2
+
+### real
+
+TBD
+
+### sim
+
+#### launch files on central computer
+
+Before using the services, you need to define ROBOT_INFO environment variable across central computer and each robot first.
+
+ex: ROBOT_INFO="lino2:13a5;lino2:13a6"
+
+- first robot
+  - robot_type: lino2
+  - robot_sn: 13a5
+  - robot_namespace: /lino2_13a5
+- second robot
+  - robot_type: lino2
+  - robot_sn: 13a6
+  - robot_namespace: /lino2_13a6
+
+These info will be used for sim.launch.py to generate the robots in gazebo.
+
+The first robot_namespace is used for all the services for each robot.
+
+##### bringup
+
+```bash
+ROBOT_INFO="lino2:13a5:0.0:0.5;artic:29f4:0.0:-0.5" ros2 launch fitrobot sim.launch.py
+```
+
+##### map
+
+```bash
+ros2 launch fitrobot map.launch.py sim:=true worldname:=turtlebot3_world use_mask:=true
+```
+
+#### services on each robot
+
+##### check_robot_status
+
+```bash
+ros2 run fitrobotcpp check_robot_status --ros-args -r __ns:=/lino2_13a5 -r /tf:=tf -r /tf_static:=tf_static
+```
+
+##### master
+
+```bash
+ros2 run fitrobotcpp master_node --ros-args -p use_sim_time:=true
+```
+
+###### services provided by master_node
+
+- call navigation service
+
+  ```bash
+  ros2 service call /lino2_ab12/navigation fitrobot_interfaces/srv/Navigation "{worldname: turtlebot3_world}"
+  ```
+
+  - rviz
+
+    ```bash
+    ros2 launch linorobot2_navigation rviz_launch.py worldname:=turtlebot3_world
+    ```
+
+- call slam
+
+  ```bash
+  ros2 service call /lino2_ab12/slam fitrobot_interfaces/srv/Slam {}
+  ```
+
+  - rviz
+
+    ```bash
+    ros2 launch linorobot2_navigation rviz_launch.py
+    ```
+
+- call termination
+
+  ```bash
+  ros2 service call /lino2_ab12/terminate_slam_or_navigation fitrobot_interfaces/srv/TerminateProcess {}
+  ```

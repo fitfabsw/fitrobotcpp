@@ -109,7 +109,6 @@ class MasterAsyncService : public rclcpp::Node {
     std::string robot_sn;
     std::string node_namespace;
     std::string package_name;
-    // bool use_sim;
     bool launch_service_active;
     pid_t launch_service_pid; // PID of the launch service process
     rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
@@ -273,16 +272,6 @@ class MasterAsyncService : public rclcpp::Node {
         } else {
             std::tie(robot_type, robot_sn, node_namespace) = parse_robot_info(robot_info);
         }
-        // const char* use_sim_env = std::getenv("USE_SIM");
-        // if (use_sim_env != nullptr) {
-        //     use_sim = atoi(use_sim_env) == 1;
-        // } else {
-        //     RCLCPP_WARN(this->get_logger(),
-        //                 "Environment variable USE_SIM is not set. Defaulting to false.");
-        //     use_sim = false; // 默認值
-        // }
-        // RCLCPP_INFO(this->get_logger(), "use_sim: %s",
-        //             this->get_parameter("use_sim_time").as_string().c_str());
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
     }
 
@@ -461,8 +450,8 @@ class MasterAsyncService : public rclcpp::Node {
 
     void run_navigation_async(std::string worldname) {
         std::string launch_file = "nav.launch.py";
-        std::vector<std::string> args = {"worldname:=" + worldname,
-                                         "sim:=" + this->get_parameter("use_sim_time").as_string(),
+        std::string use_sim = this->get_parameter("use_sim_time").as_bool() ? "true" : "false";
+        std::vector<std::string> args = {"worldname:=" + worldname, "sim:=" + use_sim,
                                          "rviz:=false"};
         launch_function_async(package_name, launch_file, args);
     }
@@ -502,8 +491,8 @@ class MasterAsyncService : public rclcpp::Node {
 
     void run_slam_async() {
         std::string launch_file = "slam.launch.py";
-        std::vector<std::string> args = {"sim:=" + this->get_parameter("use_sim_time").as_string(),
-                                         "rviz:=false"};
+        std::string use_sim = this->get_parameter("use_sim_time").as_bool() ? "true" : "false";
+        std::vector<std::string> args = {"sim:=" + use_sim, "rviz:=false"};
         launch_function_async(package_name, launch_file, args);
     }
 

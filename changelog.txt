@@ -1,3 +1,6 @@
+2024/9/6 16:20
+fix: use_sim_time parameter casting bug in run_navigation_async & run_slam_async
+
 2024/9/6 15:30
 refactor: namespaced master_node from ROBOT_INFO env variable
 - master_node

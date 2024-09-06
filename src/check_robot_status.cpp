@@ -113,18 +113,21 @@ class RobotStatusCheckNode : public rclcpp::Node {
     }
 
   private:
-    // void parameter_changed_callback(const rclcpp::Parameter& parameter) {
     rcl_interfaces::msg::SetParametersResult
     parametersCallback(const std::vector<rclcpp::Parameter>& parameters) {
+        int robot_status = this->get_parameter("fitrobot_status").as_int();
         rcl_interfaces::msg::SetParametersResult result;
         result.successful = true;
         result.reason = "success";
         for (const auto& param : parameters) {
-            // RCLCPP_INFO(this->get_logger(), "%s", param.get_name().c_str());
-            // RCLCPP_INFO(this->get_logger(), "%s", param.get_type_name().c_str());
-            // RCLCPP_INFO(this->get_logger(), "%s", param.value_to_string().c_str());
-            if (param.get_name() == "fitrobot_status" && param.as_int() == RobotStatus::SLAM) {
+            if (param.get_name() != "fitrobot_status") {
+                continue;
+            }
+            if (robot_status == RobotStatus::BRINGUP && param.as_int() == RobotStatus::SLAM) {
                 RCLCPP_INFO(this->get_logger(), "%s", "SLAM");
+            } else if (robot_status == RobotStatus::NAV_PREPARE &&
+                       param.as_int() == RobotStatus::NAV_PREPARE_TO_READY) {
+                RCLCPP_INFO(this->get_logger(), "%s", "NAV_PREPARE_TO_READY");
             }
         }
         return result;
@@ -214,11 +217,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
     bool check_tf(const std::string& to_frame, const std::string& from_frame,
                   double timeout = 1.0) {
-        // double timeout = 0.1) {
-        // auto duration = tf2::durationFromSec(timeout);
-        // bool canTransform = tf_buffer_->canTransform(to_frame, from_frame,
-        // tf2::TimePointZero,
-        //                                              tf2::durationFromSec(timeout));
         bool canTransform = tf_buffer_->canTransform(to_frame, from_frame, rclcpp::Time(0),
                                                      tf2::durationFromSec(timeout));
         tf_buffer_->clear();
@@ -274,15 +272,19 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 return;
 
             } else if (robot_status == RobotStatus::NAV_PREPARE) {
+                if (!check_nav2_running()) {
+                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
+                    publish_status(RobotStatus::BRINGUP);
+                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                }
+                return;
+
+            } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY) {
                 if (is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
                     publish_status(RobotStatus::NAV_READY);
                     is_localized_ = true;
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
-                } else if (!check_nav2_running()) {
-                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
-                    publish_status(RobotStatus::BRINGUP);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                 }
                 return;
             }
@@ -321,17 +323,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
         } else {
             std::tie(robot_type, robot_sn, node_namespace) = parse_robot_info(robot_info);
         }
-        // const char* use_sim_env = std::getenv("USE_SIM");
-        // if (use_sim_env != nullptr) {
-        //     use_sim = atoi(use_sim_env) == 1;
-        // } else {
-        //     RCLCPP_WARN(this->get_logger(),
-        //                 "Environment variable USE_SIM is not set. Defaulting to false.");
-        //     use_sim = false; // 默認值
-        // }
-        // RCLCPP_INFO(this->get_logger(), "use_sim: %s", use_sim ? "true" : "false");
-
-        // node_namespace = "/" + robot_type + "_" + robot_sn;
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
     }
 
@@ -356,7 +347,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<RobotStatusCheckNode>();
-    RCLCPP_INFO(node->get_logger(), "Check Robot Status Node started.");
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;

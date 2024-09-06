@@ -5,6 +5,7 @@
 #include "fitrobot_interfaces/srv/subscription_count.hpp"
 #include "fitrobot_interfaces/srv/terminate_process.hpp"
 #include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <memory>
 #include <rcl_interfaces/msg/parameter.hpp>
 #include <rcl_interfaces/msg/parameter_value.hpp>
@@ -94,6 +95,13 @@ class MasterAsyncService : public rclcpp::Node {
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
 
+        rclcpp::SubscriptionOptions sub_options;
+        sub_options.callback_group = service_cbg_MU;
+
+        initialpose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "initialpose", 10, std::bind(&MasterAsyncService::initialpose_callback, this, _1),
+            sub_options);
+
         // Further initialization...
         std::unordered_map<std::string, std::string> package_names = {
             {"artic", "articubot_one"}, {"lino2", "linorobot2_navigation"}};
@@ -111,6 +119,7 @@ class MasterAsyncService : public rclcpp::Node {
     std::string package_name;
     bool launch_service_active;
     pid_t launch_service_pid; // PID of the launch service process
+    rclcpp::SubscriptionOptions sub_options;
     rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
@@ -127,16 +136,22 @@ class MasterAsyncService : public rclcpp::Node {
         lfm_nav_client; // lifecycle_manager_navigation
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
         lfm_costmap_filter_client; // lifecycle_manager_costmap_filter
+    rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
+
+    void initialpose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+        auto sta_msg = RobotStatus();
+        sta_msg.status = RobotStatus::NAV_PREPARE_TO_READY;
+        pub_->publish(sta_msg);
+        set_parameter_for_node(
+            node_namespace + "/check_robot_status_node",
+            rclcpp::Parameter("fitrobot_status", RobotStatus::NAV_PREPARE_TO_READY));
+    }
 
     void shutdown_launch_service() {
         if (launch_service_active && launch_service_pid > 0) {
             RCLCPP_INFO(this->get_logger(), "Shutting down launch service with PID: %d",
                         launch_service_pid);
-
-            // Terminate the entire process group
             terminate_process_group(launch_service_pid);
-
-            // Reset launch service status
             launch_service_active = false;
             launch_service_pid = -1;
         } else {

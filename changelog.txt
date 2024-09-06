@@ -1,3 +1,8 @@
+2024/9/6 23:40
+refactor: remove tf warning from NAV_PREPARE to NAV_READY
+ - add additional robot_status in fitrobot_interace package: NAV_PREPARE_TO_READY
+ - add initialpose_callback in master_node to trigger NAV_PREPARE_TO_READY
+
 2024/9/6 16:20
 fix: use_sim_time parameter casting bug in run_navigation_async & run_slam_async
 

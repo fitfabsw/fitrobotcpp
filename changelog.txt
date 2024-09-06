@@ -1,0 +1,9 @@
+2024/9/6 15:30
+refactor: namespaced master_node from ROBOT_INFO env variable
+- master_node
+  1 namedspaced provoded by ROBOT_INFO env variable without issuing ros arguments in cli
+  2 add ensure_robotstatus_slam() in slam_callback and update check_robot_status_node's robot_status topic
+  3 extract method: parse_robot_info() for ROBOT_INFO parsing
+- check_robot_status_node
+  1. Use add_on_set_parameters_callback to receive parameter change from master_node (mainly SLAM status)
+- Add summary.md. Please see details for fitrobot services usage

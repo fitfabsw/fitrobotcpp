@@ -17,22 +17,42 @@
 #include <std_srvs/srv/empty.hpp>
 #include <string>
 #include <sys/wait.h>
+#include <tuple> // Include for std::tuple
 #include <unordered_map>
 
+using fitrobot_interfaces::msg::RobotStatus;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
+std::tuple<std::string, std::string, std::string> parse_robot_info(const std::string& robot_info) {
+    RCLCPP_INFO(rclcpp::get_logger("robot_info"), "%s", robot_info.c_str());
+    std::string robot_info_str(robot_info);
+    std::stringstream ss(robot_info_str);
+    std::string first_robot_info;
+    std::getline(ss, first_robot_info, ';'); // 取得第一個機器人的信息
+
+    std::stringstream robot_ss(first_robot_info);
+    std::string robot_type, robot_sn;
+    std::getline(robot_ss, robot_type, ':'); // Get robot type
+    std::getline(robot_ss, robot_sn, ':');   // Get robot serial number
+
+    std::string node_namespace = "/" + robot_type + "_" + robot_sn;
+    return std::make_tuple(robot_type, robot_sn, node_namespace);
+}
+
 class MasterAsyncService : public rclcpp::Node {
   public:
-    MasterAsyncService() : Node("master_service") {
-        // Declare parameters
-        this->declare_parameter("active_nav_map", "active_nav_map_not_set");
-
-        // 初始化 robot_type 和 robot_id
+    // MasterAsyncService(const std::string& node_name) : Node(node_name) {
+    MasterAsyncService(const std::string& node_name, const rclcpp::NodeOptions& options)
+        : Node(node_name, options) {
+        // this->declare_parameter("use_sim_time", false);
         set_robot_info_from_env();
-
-        // QoS settings
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
+        auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
+
+        // pub_ = this->create_publisher<RobotStatus>(node_namespace + "/robot_status", qos_pub);
+        pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
+
         service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         service_cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
         nav_srv_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
@@ -74,13 +94,6 @@ class MasterAsyncService : public rclcpp::Node {
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
 
-        // Handle environment variables
-        char* robot_info = std::getenv("ROBOT_INFO");
-        if (!robot_info) {
-            RCLCPP_ERROR(this->get_logger(), "Environment variable ROBOT_INFO is not set!");
-            throw std::runtime_error("Environment variable ROBOT_INFO is required.");
-        }
-
         // Further initialization...
         std::unordered_map<std::string, std::string> package_names = {
             {"artic", "articubot_one"}, {"lino2", "linorobot2_navigation"}};
@@ -96,9 +109,10 @@ class MasterAsyncService : public rclcpp::Node {
     std::string robot_sn;
     std::string node_namespace;
     std::string package_name;
-    bool use_sim;
+    // bool use_sim;
     bool launch_service_active;
     pid_t launch_service_pid; // PID of the launch service process
+    rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr nav_srv_;
@@ -248,34 +262,27 @@ class MasterAsyncService : public rclcpp::Node {
         reset_and_startup(lfm_costmap_filter_client);
     }
 
-    // 解析環境變數並設置 robot_type 和 robot_sn
     void set_robot_info_from_env() {
         const char* robot_info = std::getenv("ROBOT_INFO");
         if (!robot_info) {
-            RCLCPP_ERROR(this->get_logger(), "Environment variable ROBOT_INFO is not set!");
-            throw std::runtime_error("Environment variable ROBOT_INFO is required.");
-        }
-
-        std::string robot_info_str(robot_info);
-        std::stringstream ss(robot_info_str);
-        std::string first_robot_info;
-        std::getline(ss, first_robot_info, ';'); // 取得第一個機器人的信息
-
-        std::stringstream robot_ss(first_robot_info);
-        std::getline(robot_ss, robot_type, ':'); // 取得機器人類型
-        std::getline(robot_ss, robot_sn, ':');   // 取得機器人序號
-
-        const char* use_sim_env = std::getenv("USE_SIM");
-        if (use_sim_env != nullptr) {
-            use_sim = atoi(use_sim_env) == 1;
-        } else {
             RCLCPP_WARN(this->get_logger(),
-                        "Environment variable USE_SIM is not set. Defaulting to false.");
-            use_sim = false; // 默認值
+                        "Environment variable ROBOT_INFO is not set! Use default namespace=''");
+            node_namespace = "";
+            robot_type = "lino2";
+            robot_sn = "0001";
+        } else {
+            std::tie(robot_type, robot_sn, node_namespace) = parse_robot_info(robot_info);
         }
-        RCLCPP_INFO(this->get_logger(), "use_sim: %s", use_sim ? "true" : "false");
-
-        node_namespace = "/" + robot_type + "_" + robot_sn;
+        // const char* use_sim_env = std::getenv("USE_SIM");
+        // if (use_sim_env != nullptr) {
+        //     use_sim = atoi(use_sim_env) == 1;
+        // } else {
+        //     RCLCPP_WARN(this->get_logger(),
+        //                 "Environment variable USE_SIM is not set. Defaulting to false.");
+        //     use_sim = false; // 默認值
+        // }
+        // RCLCPP_INFO(this->get_logger(), "use_sim: %s",
+        //             this->get_parameter("use_sim_time").as_string().c_str());
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
     }
 
@@ -455,7 +462,7 @@ class MasterAsyncService : public rclcpp::Node {
     void run_navigation_async(std::string worldname) {
         std::string launch_file = "nav.launch.py";
         std::vector<std::string> args = {"worldname:=" + worldname,
-                                         "sim:=" + std::string(use_sim ? "true" : "false"),
+                                         "sim:=" + this->get_parameter("use_sim_time").as_string(),
                                          "rviz:=false"};
         launch_function_async(package_name, launch_file, args);
     }
@@ -469,9 +476,33 @@ class MasterAsyncService : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "navigation_callback finished");
     }
 
+    bool check_substring(const std::string& substring) {
+        auto node_names = this->get_node_names();
+        for (const auto& name : node_names) {
+            if (name.find(substring) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void ensure_robotstatus_slam() {
+        auto nodes = this->get_node_names();
+        while (check_substring("slam_toolbox") == false) {
+            RCLCPP_INFO(this->get_logger(), "Waiting for check_robot_status_node to be ready...");
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            nodes = this->get_node_names();
+        }
+        auto msg = RobotStatus();
+        msg.status = RobotStatus::SLAM;
+        pub_->publish(msg);
+        set_parameter_for_node(node_namespace + "/check_robot_status_node",
+                               rclcpp::Parameter("fitrobot_status", RobotStatus::SLAM));
+    }
+
     void run_slam_async() {
         std::string launch_file = "slam.launch.py";
-        std::vector<std::string> args = {"sim:=" + std::string(use_sim ? "true" : "false"),
+        std::vector<std::string> args = {"sim:=" + this->get_parameter("use_sim_time").as_string(),
                                          "rviz:=false"};
         launch_function_async(package_name, launch_file, args);
     }
@@ -481,6 +512,7 @@ class MasterAsyncService : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "slam_callback started");
         clean_up();
         run_slam_async();
+        ensure_robotstatus_slam();
         RCLCPP_INFO(this->get_logger(), "slam_callback finished");
     }
 
@@ -532,7 +564,20 @@ class MasterAsyncService : public rclcpp::Node {
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<MasterAsyncService>();
+
+    const char* robot_info = std::getenv("ROBOT_INFO");
+    std::string node_name = "master_service";
+    rclcpp::NodeOptions options;
+    if (!robot_info) {
+        std::cout << "Environment variable ROBOT_INFO is not set! Use default namespace=/";
+    } else {
+        auto [robot_type, robot_sn, node_namespace] = parse_robot_info(robot_info);
+        options.arguments(
+            {"--ros-args", "-r", "__node:=" + node_name, "-r", "__ns:=" + node_namespace});
+    }
+    auto node = std::make_shared<MasterAsyncService>(node_name, options);
+    // auto node = std::make_shared<MasterAsyncService>(node_name);
+
     rclcpp::executors::MultiThreadedExecutor executor;
     executor.add_node(node);
     executor.spin();

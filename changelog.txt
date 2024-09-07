@@ -1,3 +1,7 @@
+2024/9/7 13:40
+refactor: combine master_node node and check_robot_status_node into master.launch.py
+ - usage(simulation): ros2 launch fitrobotcpp master.launch.py sim:=true
+
 2024/9/6 23:40
 refactor: remove tf warning from NAV_PREPARE to NAV_READY
  - add additional robot_status in fitrobot_interace package: NAV_PREPARE_TO_READY

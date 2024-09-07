@@ -92,6 +92,7 @@ include_directories(
 )
 
 install(DIRECTORY include/ DESTINATION include)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 install(TARGETS master_node check_robot_status nav2_action_client
         DESTINATION lib/${PROJECT_NAME}

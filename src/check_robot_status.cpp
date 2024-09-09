@@ -1,4 +1,5 @@
 #include "fitrobot_interfaces/msg/robot_status.hpp"
+#include "fitrobot_interfaces/srv/para1.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "tf2_ros/create_timer_ros.h"
 #include <action_msgs/msg/goal_status.hpp>
@@ -48,6 +49,7 @@ using namespace std::chrono_literals;
 using action_msgs::msg::GoalStatus;
 using action_msgs::msg::GoalStatusArray;
 using fitrobot_interfaces::msg::RobotStatus;
+using fitrobot_interfaces::srv::Para1;
 using rclcpp::Parameter;
 using std::string;
 using std::placeholders::_1;
@@ -84,23 +86,45 @@ class RobotStatusCheckNode : public rclcpp::Node {
         rclcpp::QoS qos(rclcpp::KeepLast(1));
         qos.transient_local();
         qos.reliable();
+        auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
 
-        pub_ = this->create_publisher<RobotStatus>("robot_status", qos);
+        pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
+
+        service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        service_cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
         timer_ = this->create_wall_timer(1s, std::bind(&RobotStatusCheckNode::status_check, this));
 
         service_ = this->create_service<std_srvs::srv::Trigger>(
             "is_localized", std::bind(&RobotStatusCheckNode::srv_localized_callback, this, _1, _2));
+        // rmw_qos_profile_services_default, service_cbg_MU);
 
+        rclcpp::SubscriptionOptions sub_options;
+        sub_options.callback_group = service_cbg_MU;
         sub_nav_to_pose_ = this->create_subscription<GoalStatusArray>(
             "navigate_to_pose/_action/status", 10,
             std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1));
+        // sub_options);
         sub_follow_wp_ = this->create_subscription<GoalStatusArray>(
             "follow_waypoints/_action/status", 10,
             std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1));
+        // sub_options);
 
         callback_handle_ = this->add_on_set_parameters_callback(
             std::bind(&RobotStatusCheckNode::parametersCallback, this, _1));
+
+        register_robot_client = this->create_client<Para1>(
+            "/fitparam", rmw_qos_profile_services_default, service_cbg_MU);
+
+        while (!register_robot_client->wait_for_service(1s)) {
+            if (!rclcpp::ok()) {
+                RCLCPP_ERROR(this->get_logger(),
+                             "Interrupted while waiting for the service. Exiting.");
+                rclcpp::shutdown();
+                exit(0);
+            }
+            RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+        }
 
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
@@ -256,6 +280,31 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                    // register robot
+                    RCLCPP_INFO(this->get_logger(), "Register robot!");
+                    auto request = std::make_shared<Para1::Request>();
+                    request->parameter1_name = "register_robot";
+                    ip = "172.20.10.81"; // TODO: get real ip
+                    request->parameter1_value =
+                        "{'robot_namespace': '" + robot_namespace + "', 'ip': '" + ip + "'}";
+                    auto future = register_robot_client->async_send_request(request);
+                    auto status = future.wait_for(std::chrono::milliseconds(5000));
+                    if (status == std::future_status::ready) {
+                        try {
+                            auto result = future.get();
+                            if (result->success == "true") {
+                                RCLCPP_ERROR(this->get_logger(), "Register robot success!");
+                            } else {
+                                RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
+                            }
+                        } catch (const std::exception& e) {
+                            RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+                        }
+                    } else {
+                        RCLCPP_ERROR(
+                            this->get_logger(),
+                            "Timeout while waiting for the parameter set operation to complete.");
+                    }
                 }
                 return;
 
@@ -319,20 +368,23 @@ class RobotStatusCheckNode : public rclcpp::Node {
         if (!robot_info) {
             RCLCPP_WARN(this->get_logger(),
                         "Environment variable ROBOT_INFO is not set! Use default namespace=/");
-            node_namespace = "";
+            robot_namespace = "";
         } else {
-            std::tie(robot_type, robot_sn, node_namespace) = parse_robot_info(robot_info);
+            std::tie(robot_type, robot_sn, robot_namespace) = parse_robot_info(robot_info);
         }
-        RCLCPP_INFO(this->get_logger(), "Node name set to: %s", node_namespace.c_str());
+        RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
     }
 
     std::string robot_type;
     std::string robot_sn;
-    std::string node_namespace;
+    std::string robot_namespace;
     // bool use_sim;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service_;
+
+    rclcpp::Client<Para1>::SharedPtr register_robot_client;
+
     rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_nav_to_pose_;
     rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_follow_wp_;
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -342,12 +394,22 @@ class RobotStatusCheckNode : public rclcpp::Node {
     std::vector<int> nav_statuses;
     OnSetParametersCallbackHandle::SharedPtr callback_handle_;
     rclcpp::CallbackGroup::SharedPtr callback_group_;
+    rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
+    rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
+    std::string ip;
 };
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<RobotStatusCheckNode>();
-    rclcpp::spin(node);
+
+    rclcpp::executors::MultiThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin();
+    executor.remove_node(node);
     rclcpp::shutdown();
+
+    // rclcpp::spin(node);
+    // rclcpp::shutdown();
     return 0;
 }

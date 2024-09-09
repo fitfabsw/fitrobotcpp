@@ -1,3 +1,6 @@
+2024/9/9 15:30
+feat: register robot thru service /fitparam when bringup
+
 2024/9/7 13:40
 refactor: combine master_node node and check_robot_status_node into master.launch.py
  - usage(simulation): ros2 launch fitrobotcpp master.launch.py sim:=true

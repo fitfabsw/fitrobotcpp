@@ -1,3 +1,6 @@
+2024/9/11 8:20
+refactor: add robot_status & robot_ip in register_robot service request
+
 2024/9/9 15:30
 feat: register robot thru service /fitparam when bringup
 

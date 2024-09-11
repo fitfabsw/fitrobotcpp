@@ -286,7 +286,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     request->parameter1_name = "register_robot";
                     ip = "172.20.10.81"; // TODO: get real ip
                     request->parameter1_value =
-                        "{'robot_namespace': '" + robot_namespace + "', 'ip': '" + ip + "'}";
+                        "{'robot_namespace': '" + robot_namespace +
+                        "', 'robot_status': " + std::to_string(robot_status) + ", 'robot_ip': '" +
+                        ip + "'}";
                     auto future = register_robot_client->async_send_request(request);
                     auto status = future.wait_for(std::chrono::milliseconds(5000));
                     if (status == std::future_status::ready) {

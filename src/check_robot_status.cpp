@@ -4,8 +4,12 @@
 #include "tf2_ros/create_timer_ros.h"
 #include <action_msgs/msg/goal_status.hpp>
 #include <action_msgs/msg/goal_status_array.hpp>
+#include <arpa/inet.h>
 #include <chrono>
+#include <ifaddrs.h>
 #include <memory>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <tf2/exceptions.h>
@@ -271,135 +275,164 @@ class RobotStatusCheckNode : public rclcpp::Node {
         pub_->publish(msg);
     }
 
+    std::string get_ip_address() {
+        struct ifaddrs *ifaddr, *ifa;
+        char host[NI_MAXHOST];
+        std::string ip_address;
+        if (getifaddrs(&ifaddr) == -1) {
+            std::cerr << "Error getting IP addresses" << std::endl;
+            return "";
+        }
+        for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == nullptr)
+                continue;
+            if (ifa->ifa_addr->sa_family == AF_INET) {
+                int s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), host, NI_MAXHOST,
+                                    nullptr, 0, NI_NUMERICHOST);
+                if (s != 0) {
+                    std::cerr << "getnameinfo() failed: " << gai_strerror(s) << std::endl;
+                    continue;
+                }
+                if (std::string(host) != "127.0.0.1") {
+                    ip_address = host;
+                    break; // 找到一個非回送的 IPv4 地址後退出
+                }
+            }
+        }
+        freeifaddrs(ifaddr); // 釋放記憶體
+        return ip_address;
+    }
+
     void status_check() {
-        try {
-            int robot_status = this->get_parameter("fitrobot_status").as_int();
+        try int robot_status = this->get_parameter("fitrobot_status").as_int();
 
-            if (robot_status == RobotStatus::STANDBY) {
-                if (is_tf_odom_baselink_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
-                    publish_status(RobotStatus::BRINGUP);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
-                    // register robot
-                    RCLCPP_INFO(this->get_logger(), "Register robot!");
-                    auto request = std::make_shared<Para1::Request>();
-                    request->parameter1_name = "register_robot";
-                    ip = "172.20.10.81"; // TODO: get real ip
-                    request->parameter1_value =
-                        "{'robot_namespace': '" + robot_namespace +
-                        "', 'robot_status': " + std::to_string(robot_status) + ", 'robot_ip': '" +
-                        ip + "'}";
-                    auto future = register_robot_client->async_send_request(request);
-                    auto status = future.wait_for(std::chrono::milliseconds(5000));
-                    if (status == std::future_status::ready) {
-                        try {
-                            auto result = future.get();
-                            if (result->success == "true") {
-                                RCLCPP_ERROR(this->get_logger(), "Register robot success!");
-                            } else {
-                                RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
-                            }
-                        } catch (const std::exception& e) {
-                            RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+        if (robot_status == RobotStatus::STANDBY) {
+            if (is_tf_odom_baselink_existed()) {
+                RCLCPP_INFO(this->get_logger(), "BRINGUP");
+                publish_status(RobotStatus::BRINGUP);
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                // register robot
+                RCLCPP_INFO(this->get_logger(), "Register robot!");
+                auto request = std::make_shared<Para1::Request>();
+                request->parameter1_name = "register_robot";
+                ip = get_ip_address();
+                RCLCPP_INFO(this->get_logger(), "IP: %s", ip.c_str());
+                request->parameter1_value = "{'robot_namespace': '" + robot_namespace +
+                                            "', 'robot_status': " + std::to_string(robot_status) +
+                                            ", 'robot_ip': '" + ip + "'}";
+                auto future = register_robot_client->async_send_request(request);
+                auto status = future.wait_for(std::chrono::milliseconds(5000));
+                if (status == std::future_status::ready) {
+                    try {
+                        auto result = future.get();
+                        if (result->success == "true") {
+                            RCLCPP_ERROR(this->get_logger(), "Register robot success!");
+                        } else {
+                            RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
                         }
-                    } else {
-                        RCLCPP_ERROR(
-                            this->get_logger(),
-                            "Timeout while waiting for the parameter set operation to complete.");
+                    } catch (const std::exception& e) {
+                        RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
                     }
+                } else {
+                    RCLCPP_ERROR(
+                        this->get_logger(),
+                        "Timeout while waiting for the parameter set operation to complete.");
                 }
-                return;
-
-            } else if (robot_status == RobotStatus::BRINGUP) {
-                if (check_nav2_running()) {
-                    RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
-                    publish_status(RobotStatus::NAV_PREPARE);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
-                } else if (!is_tf_odom_baselink_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "STANDBY");
-                    publish_status(RobotStatus::STANDBY);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::STANDBY));
-                }
-                return;
-
-            } else if (robot_status == RobotStatus::NAV_PREPARE) {
-                if (!check_nav2_running()) {
-                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
-                    publish_status(RobotStatus::BRINGUP);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
-                }
-                return;
-
-            } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY) {
-                if (is_tf_odom_map_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
-                    publish_status(RobotStatus::NAV_READY);
-                    is_localized_ = true;
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
-                }
-                return;
             }
+            return;
 
-            if (robot_status == RobotStatus::SLAM) {
-                if (!check_slam_running()) {
-                    RCLCPP_INFO(this->get_logger(), "BRINGUP");
-                    publish_status(RobotStatus::BRINGUP);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
-                }
-                return;
-            } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) !=
-                       nav_statuses.end()) {
-                if (!is_tf_odom_map_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
-                    publish_status(RobotStatus::NAV_PREPARE);
-                    is_localized_ = false;
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
-                }
-                return;
+        } else if (robot_status == RobotStatus::BRINGUP) {
+            if (check_nav2_running()) {
+                RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
+                publish_status(RobotStatus::NAV_PREPARE);
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
+            } else if (!is_tf_odom_baselink_existed()) {
+                RCLCPP_INFO(this->get_logger(), "STANDBY");
+                publish_status(RobotStatus::STANDBY);
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::STANDBY));
             }
+            return;
 
-        } catch (tf2::LookupException& ex) {
-            RCLCPP_ERROR(this->get_logger(), "Transform lookup failed: %s", ex.what());
-        } catch (tf2::ExtrapolationException& ex) {
-            RCLCPP_ERROR(this->get_logger(), "Transform extrapolation failed: %s", ex.what());
+        } else if (robot_status == RobotStatus::NAV_PREPARE) {
+            if (!check_nav2_running()) {
+                RCLCPP_INFO(this->get_logger(), "BRINGUP");
+                publish_status(RobotStatus::BRINGUP);
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+            }
+            return;
+
+        } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY) {
+            if (is_tf_odom_map_existed()) {
+                RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
+                publish_status(RobotStatus::NAV_READY);
+                is_localized_ = true;
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
+            }
+            return;
+        }
+
+        if (robot_status == RobotStatus::SLAM) {
+            if (!check_slam_running()) {
+                RCLCPP_INFO(this->get_logger(), "BRINGUP");
+                publish_status(RobotStatus::BRINGUP);
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+            }
+            return;
+        } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) !=
+                   nav_statuses.end()) {
+            if (!is_tf_odom_map_existed()) {
+                RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
+                publish_status(RobotStatus::NAV_PREPARE);
+                is_localized_ = false;
+                this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
+            }
+            return;
         }
     }
+    catch (tf2::LookupException& ex) {
+        RCLCPP_ERROR(this->get_logger(), "Transform lookup failed: %s", ex.what());
+    }
+    catch (tf2::ExtrapolationException& ex) {
+        RCLCPP_ERROR(this->get_logger(), "Transform extrapolation failed: %s", ex.what());
+    }
+}
 
     void set_robot_info_from_env() {
-        const char* robot_info = std::getenv("ROBOT_INFO");
-        if (!robot_info) {
-            RCLCPP_WARN(this->get_logger(),
-                        "Environment variable ROBOT_INFO is not set! Use default namespace=/");
-            robot_namespace = "";
-        } else {
-            std::tie(robot_type, robot_sn, robot_namespace) = parse_robot_info(robot_info);
-        }
-        RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
+    const char* robot_info = std::getenv("ROBOT_INFO");
+    if (!robot_info) {
+        RCLCPP_WARN(this->get_logger(),
+                    "Environment variable ROBOT_INFO is not set! Use default namespace=/");
+        robot_namespace = "";
+    } else {
+        std::tie(robot_type, robot_sn, robot_namespace) = parse_robot_info(robot_info);
     }
+    RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
+}
 
-    std::string robot_type;
-    std::string robot_sn;
-    std::string robot_namespace;
-    // bool use_sim;
-    rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service_;
+std::string robot_type;
+std::string robot_sn;
+std::string robot_namespace;
+// bool use_sim;
+rclcpp::TimerBase::SharedPtr timer_;
+rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
+rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service_;
 
-    rclcpp::Client<Para1>::SharedPtr register_robot_client;
+rclcpp::Client<Para1>::SharedPtr register_robot_client;
 
-    rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_nav_to_pose_;
-    rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_follow_wp_;
-    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-    bool is_localized_;
-    bool waypoints_following_;
-    std::vector<int> nav_statuses;
-    OnSetParametersCallbackHandle::SharedPtr callback_handle_;
-    rclcpp::CallbackGroup::SharedPtr callback_group_;
-    rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
-    rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
-    std::string ip;
-};
+rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_nav_to_pose_;
+rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_follow_wp_;
+std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+bool is_localized_;
+bool waypoints_following_;
+std::vector<int> nav_statuses;
+OnSetParametersCallbackHandle::SharedPtr callback_handle_;
+rclcpp::CallbackGroup::SharedPtr callback_group_;
+rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
+rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
+std::string ip;
+}
+;
 
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);

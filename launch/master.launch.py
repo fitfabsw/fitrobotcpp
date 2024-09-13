@@ -1,9 +1,11 @@
 import os
 import launch
 from launch import LaunchDescription
-import launch_ros.actions
-from launch.actions import DeclareLaunchArgument
+from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration
+from launch.launch_description_sources import FrontendLaunchDescriptionSource
+from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
@@ -19,12 +21,13 @@ def generate_launch_description():
     robot_type, robot_sn = robot_first[0], robot_first[1]
     namespace = f"/{robot_type}_{robot_sn}"
 
+
     sim_arg = DeclareLaunchArgument(
         "sim",
         default_value="false",
         description="true | false (default)",
     )
-    check_robot_status_node = launch_ros.actions.Node(
+    check_robot_status_node = Node(
         package="fitrobotcpp",
         executable="check_robot_status",
         name="check_robot_status_node",
@@ -35,7 +38,20 @@ def generate_launch_description():
             ("/tf_static", "tf_static"),
         ],
     )
-    master_node = launch_ros.actions.Node(
+    rosbridge_ws_node = IncludeLaunchDescription(
+        FrontendLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("rosbridge_server"),
+                "launch",
+                "rosbridge_websocket_launch.xml",
+            )
+        )
+    )
+    rosboard_node = Node(
+        package='rosboard',
+        executable='rosboard_node',
+    )
+    master_node = Node(
         package="fitrobotcpp",
         executable="master_node",
         name="master_node",
@@ -45,10 +61,18 @@ def generate_launch_description():
         ],
     )
 
+    # waypoint_follower_node = Node(
+    #     package='fitrobot',
+    #     executable='waypoint_follower',
+    # )
+
     return LaunchDescription(
         [
-            sim_arg,
             check_robot_status_node,
+            rosbridge_ws_node,
+            rosboard_node,
+            sim_arg,
             master_node,
+            # waypoint_follower_node,
         ]
     )

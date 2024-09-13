@@ -131,11 +131,12 @@ class RobotStatusCheckNode : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
         nav_statuses = {RobotStatus::NAV_READY,
-                        // RobotStatus::NAV_RUNNING, // Uncomment if needed
-                        RobotStatus::NAV_ARRIVED, RobotStatus::NAV_CANCEL, RobotStatus::NAV_FAILED,
-                        // RobotStatus::NAV_WF_RUNNING, // Uncomment if needed
+                        RobotStatus::NAV_RUNNING, // Uncomment if needed
+                        RobotStatus::NAV_ARRIVED,    RobotStatus::NAV_CANCEL,
+                        RobotStatus::NAV_FAILED,
+                        RobotStatus::NAV_WF_RUNNING, // Uncomment if needed
                         RobotStatus::NAV_WF_ARRIVED, RobotStatus::NAV_WF_COMPLETED,
-                        RobotStatus::NAV_WF_CANCEL, RobotStatus::NAV_WF_FAILED};
+                        RobotStatus::NAV_WF_CANCEL,  RobotStatus::NAV_WF_FAILED};
     }
 
   private:

@@ -1,3 +1,6 @@
+2024/9/13 16:20
+fix: allow termination even during navgation in check_robot_status.cpp 
+
 2024/9/11 8:20
 refactor: add robot_status & robot_ip in register_robot service request
 

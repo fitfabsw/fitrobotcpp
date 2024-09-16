@@ -118,19 +118,23 @@ class RobotStatusCheckNode : public rclcpp::Node {
         register_robot_client = this->create_client<Para1>(
             "/fitparam", rmw_qos_profile_services_default, service_cbg_MU);
 
-        while (!register_robot_client->wait_for_service(1s)) {
-            if (!rclcpp::ok()) {
-                RCLCPP_ERROR(this->get_logger(),
-                             "Interrupted while waiting for the service. Exiting.");
-                rclcpp::shutdown();
-                exit(0);
-            }
-            RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+        if (!register_robot_client->wait_for_service(std::chrono::seconds(2))) {
+            RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
         }
+
+        // while (!register_robot_client->wait_for_service(1s)) {
+        //     if (!rclcpp::ok()) {
+        //         RCLCPP_ERROR(this->get_logger(),
+        //                      "Interrupted while waiting for the service. Exiting.");
+        //         rclcpp::shutdown();
+        //         exit(0);
+        //     }
+        //     RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
+        // }
 
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
-        nav_statuses = {RobotStatus::NAV_READY,
+        nav_statuses = {RobotStatus::NAV_READY,      RobotStatus::NAV_PREPARE_TO_READY,
                         RobotStatus::NAV_RUNNING, // Uncomment if needed
                         RobotStatus::NAV_ARRIVED,    RobotStatus::NAV_CANCEL,
                         RobotStatus::NAV_FAILED,
@@ -311,7 +315,13 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+
                     // register robot
+                    if (!register_robot_client->wait_for_service(std::chrono::seconds(2))) {
+                        RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
+                        return;
+                    }
+
                     RCLCPP_INFO(this->get_logger(), "Register robot!");
                     auto request = std::make_shared<Para1::Request>();
                     request->parameter1_name = "register_robot";

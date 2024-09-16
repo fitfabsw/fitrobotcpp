@@ -1,3 +1,7 @@
+2024/9/16 17:30
+refactor: change wait_for_service rule in check_robot_status.cpp
+ - check only once when initializing cehck_robot_status_node
+
 2024/9/13 16:20
 fix: allow termination even during navgation in check_robot_status.cpp 
 

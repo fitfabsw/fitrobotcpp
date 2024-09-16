@@ -21,7 +21,6 @@ def generate_launch_description():
     robot_type, robot_sn = robot_first[0], robot_first[1]
     namespace = f"/{robot_type}_{robot_sn}"
 
-
     sim_arg = DeclareLaunchArgument(
         "sim",
         default_value="false",
@@ -48,8 +47,8 @@ def generate_launch_description():
         )
     )
     rosboard_node = Node(
-        package='rosboard',
-        executable='rosboard_node',
+        package="rosboard",
+        executable="rosboard_node",
     )
     master_node = Node(
         package="fitrobotcpp",

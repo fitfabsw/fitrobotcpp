@@ -43,15 +43,23 @@ std::tuple<std::string, std::string, std::string> parse_robot_info(const std::st
 
 class MasterAsyncService : public rclcpp::Node {
   public:
-    // MasterAsyncService(const std::string& node_name) : Node(node_name) {
     MasterAsyncService(const std::string& node_name, const rclcpp::NodeOptions& options)
         : Node(node_name, options) {
-        // this->declare_parameter("use_sim_time", false);
         set_robot_info_from_env();
+        const char* workspace_ = std::getenv("WORKSPACE");
+        if (!workspace_) {
+            RCLCPP_WARN(
+                this->get_logger(),
+                "Environment variable WORKSPACE is not set! Use default workspace=~/simulations");
+            workspace = "~/simulations";
+        } else {
+            workspace = workspace_;
+            RCLCPP_INFO(this->get_logger(), "ABC WORKSPACE: %s", workspace);
+        }
+
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
         auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
 
-        // pub_ = this->create_publisher<RobotStatus>(node_namespace + "/robot_status", qos_pub);
         pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
 
         service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -113,6 +121,7 @@ class MasterAsyncService : public rclcpp::Node {
     }
 
   private:
+    std::string workspace;
     std::string robot_type;
     std::string robot_sn;
     std::string node_namespace;
@@ -184,7 +193,7 @@ class MasterAsyncService : public rclcpp::Node {
             // 子進程：設置新的進程組 ID
             setpgid(0, 0);
             std::ostringstream launch_command;
-            std::string source_prefix = "source ~/simulations/install/setup.bash && ";
+            std::string source_prefix = "source ~/" + workspace + "/install/setup.bash && ";
             launch_command << source_prefix << "ros2 launch " << package_name << " " << launch_file;
             for (const auto& arg : args) {
                 launch_command << " " << arg;
@@ -441,10 +450,8 @@ class MasterAsyncService : public rclcpp::Node {
         bool success = false;
         for (const auto& node : nodes_to_update) {
             if (node != node_namespace + "/costmap_filter_info_server") {
-                // success = set_parameter_for_node(node, param_name, param_value);
                 success = set_parameter_for_node(node, map_param);
             } else {
-                // success = set_parameter_for_node(node, param_name2, param_value2);
                 success = set_parameter_for_node(node, mask_param);
             }
             if (!success) {
@@ -524,19 +531,14 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<fitrobot_interfaces::srv::RemoteControl::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::RemoteControl::Response> response) {
         RCLCPP_INFO(this->get_logger(), "remote_control_callback started");
-
         RCLCPP_INFO(this->get_logger(), "get parameters tested (temp)");
-
         int robot_status = get_robot_status();
         RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
-
         bool sim_time = get_sim_time(node_namespace + "/amcl");
         RCLCPP_INFO(this->get_logger(), "sim_time: %s", sim_time ? "true" : "false");
-
         std::string frame_id =
             get_parameter_string("/turtlebot3_world/lino2/map_server", "frame_id");
         RCLCPP_INFO(this->get_logger(), "frame_id: %s", frame_id.c_str());
-
         RCLCPP_INFO(this->get_logger(), "remote_control_callback finished");
     }
 
@@ -544,12 +546,7 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<fitrobot_interfaces::srv::TerminateProcess::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::TerminateProcess::Response> response) {
         RCLCPP_INFO(this->get_logger(), "terminate_slam_or_navigation_callback started");
-
         clean_up();
-        response->success = true;
-        // rclcpp::Parameter param("use_sim_time", true);
-        // set_parameter_for_node(node_namespace + "/amcl", param);
-
         response->success = true;
         RCLCPP_INFO(this->get_logger(), "terminate_slam_or_navigation_callback finished");
     }
@@ -558,10 +555,8 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<fitrobot_interfaces::srv::SubscriptionCount::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::SubscriptionCount::Response> response) {
         RCLCPP_INFO(this->get_logger(), "subscription_count_callback started");
-
         std::string worldname = request->topic_name;
         set_parameters_map_mask(worldname);
-
         RCLCPP_INFO(this->get_logger(), "subscription_count_callback finished");
     }
 };
@@ -580,7 +575,6 @@ int main(int argc, char** argv) {
             {"--ros-args", "-r", "__node:=" + node_name, "-r", "__ns:=" + node_namespace});
     }
     auto node = std::make_shared<MasterAsyncService>(node_name, options);
-    // auto node = std::make_shared<MasterAsyncService>(node_name);
 
     rclcpp::executors::MultiThreadedExecutor executor;
     executor.add_node(node);

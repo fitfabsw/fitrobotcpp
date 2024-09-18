@@ -337,7 +337,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                         try {
                             auto result = future.get();
                             if (result->success == "true") {
-                                RCLCPP_ERROR(this->get_logger(), "Register robot success!");
+                                RCLCPP_INFO(this->get_logger(), "Register robot success!");
                             } else {
                                 RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
                             }

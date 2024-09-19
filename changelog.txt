@@ -1,9 +1,14 @@
+2024/9/19 9:30
+refactor: change wait_for_service rule in check_robot_status.cpp
+ - remove wait_for_service at initialization
+ - increase wait_for_service timeout to 5s at status_check()
+
 2024/9/16 17:30
 refactor: change wait_for_service rule in check_robot_status.cpp
  - check only once when initializing cehck_robot_status_node
 
 2024/9/13 16:20
-fix: allow termination even during navgation in check_robot_status.cpp 
+fix: allow termination even during navgation in check_robot_status.cpp
 
 2024/9/11 8:20
 refactor: add robot_status & robot_ip in register_robot service request

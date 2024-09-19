@@ -118,20 +118,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
         register_robot_client = this->create_client<Para1>(
             "/fitparam", rmw_qos_profile_services_default, service_cbg_MU);
 
-        if (!register_robot_client->wait_for_service(std::chrono::seconds(2))) {
-            RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
-        }
-
-        // while (!register_robot_client->wait_for_service(1s)) {
-        //     if (!rclcpp::ok()) {
-        //         RCLCPP_ERROR(this->get_logger(),
-        //                      "Interrupted while waiting for the service. Exiting.");
-        //         rclcpp::shutdown();
-        //         exit(0);
-        //     }
-        //     RCLCPP_INFO(this->get_logger(), "service not available, waiting again...");
-        // }
-
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
         nav_statuses = {RobotStatus::NAV_READY,      RobotStatus::NAV_PREPARE_TO_READY,
@@ -317,7 +303,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
 
                     // register robot
-                    if (!register_robot_client->wait_for_service(std::chrono::seconds(2))) {
+                    if (!register_robot_client->wait_for_service(std::chrono::seconds(5))) {
                         RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
                         return;
                     }

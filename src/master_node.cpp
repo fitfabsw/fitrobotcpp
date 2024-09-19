@@ -50,8 +50,8 @@ class MasterAsyncService : public rclcpp::Node {
         if (!workspace_) {
             RCLCPP_WARN(
                 this->get_logger(),
-                "Environment variable WORKSPACE is not set! Use default workspace=~/simulations");
-            workspace = "~/simulations";
+                "Environment variable WORKSPACE is not set! Use default workspace=simulations");
+            workspace = "simulations";
         } else {
             workspace = workspace_;
             RCLCPP_INFO(this->get_logger(), "ABC WORKSPACE: %s", workspace);

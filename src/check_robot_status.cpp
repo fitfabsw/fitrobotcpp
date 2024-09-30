@@ -254,9 +254,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
         return false;
     }
 
-    bool check_nav2_running() { return check_substring("bt_navigator"); }
+    bool check_nav2_running() { return check_substring(robot_namespace + "/bt_navigator"); }
 
-    bool check_slam_running() { return check_substring("slam_toolbox"); }
+    bool check_slam_running() { return check_substring(robot_namespace + "/slam_toolbox"); }
 
     void publish_status(int status) {
         auto msg = RobotStatus();

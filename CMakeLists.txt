@@ -70,17 +70,9 @@ ament_target_dependencies(
 # fitrobot_interfaces) target_link_libraries(parse_station
 # nlohmann_json::nlohmann_json)
 
-add_executable(nav2_action_client src/nav2_action_client.cpp)
-ament_target_dependencies(
-  nav2_action_client
-  rclcpp
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  std_srvs
-  nav2_msgs
-  fitrobot_interfaces
-)
+# add_executable(nav2_action_client src/nav2_action_client.cpp)
+# ament_target_dependencies( nav2_action_client rclcpp tf2 tf2_ros
+# tf2_geometry_msgs std_srvs nav2_msgs fitrobot_interfaces )
 
 # Linking Library: Link this library with any executable that needs
 # BasicNavigator. target_link_libraries(waypoint_follower basic_navigator_lib)
@@ -94,8 +86,6 @@ include_directories(
 install(DIRECTORY include/ DESTINATION include)
 # install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
-install(TARGETS master_node check_robot_status nav2_action_client
-        DESTINATION lib/${PROJECT_NAME}
-)
+install(TARGETS master_node check_robot_status DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

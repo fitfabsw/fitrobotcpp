@@ -1,3 +1,8 @@
+2024/9/30 16:30
+fix: modify check_nav2_running & check_slam_running
+ - considering robot namespace
+ - move no-used code into archive/ folder
+
 2024/9/19 9:30
 refactor: change wait_for_service rule in check_robot_status.cpp
  - remove wait_for_service at initialization

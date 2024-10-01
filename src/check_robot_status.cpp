@@ -142,6 +142,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
             if (robot_status == RobotStatus::BRINGUP && param.as_int() == RobotStatus::SLAM) {
                 RCLCPP_INFO(this->get_logger(), "%s", "SLAM");
+                update_robot(RobotStatus::SLAM);
             } else if (robot_status == RobotStatus::NAV_PREPARE &&
                        param.as_int() == RobotStatus::NAV_PREPARE_TO_READY) {
                 RCLCPP_INFO(this->get_logger(), "%s", "NAV_PREPARE_TO_READY");
@@ -153,76 +154,63 @@ class RobotStatusCheckNode : public rclcpp::Node {
     void navigate_to_pose_goal_status_callback(const GoalStatusArray::SharedPtr msg) {
         auto status = msg->status_list.back().status;
         int fitrobot_status;
-        string status_log;
-        if (status == GoalStatus::STATUS_EXECUTING) {
-            if (!waypoints_following_) {
-                fitrobot_status = RobotStatus::NAV_RUNNING;
-                status_log = "NAV_RUNNING";
-            } else {
-                fitrobot_status = RobotStatus::NAV_WF_RUNNING;
-                status_log = "NAV_WF_RUNNING";
-            }
-            publish_status(fitrobot_status);
+        std::string status_log;
+        auto set_and_log_status = [&](int new_status, const std::string& status_log) {
+            publish_status(new_status);
             RCLCPP_INFO(this->get_logger(), "%s", status_log.c_str());
-            this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
-
-        } else if (status == GoalStatus::STATUS_SUCCEEDED) {
+            this->set_parameter(Parameter("fitrobot_status", new_status));
+            update_robot(new_status);
+        };
+        switch (status) {
+        case GoalStatus::STATUS_EXECUTING:
+            set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_RUNNING
+                                                    : RobotStatus::NAV_RUNNING,
+                               waypoints_following_ ? "NAV_WF_RUNNING" : "NAV_RUNNING");
+            break;
+        case GoalStatus::STATUS_SUCCEEDED:
+            set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_ARRIVED
+                                                    : RobotStatus::NAV_ARRIVED,
+                               waypoints_following_ ? "NAV_WF_ARRIVED" : "NAV_ARRIVED");
+            break;
+        case GoalStatus::STATUS_CANCELED:
             if (!waypoints_following_) {
-                fitrobot_status = RobotStatus::NAV_ARRIVED;
-                status_log = "NAV_ARRIVED";
-            } else {
-                fitrobot_status = RobotStatus::NAV_WF_ARRIVED;
-                status_log = "NAV_WF_ARRIVED";
+                set_and_log_status(RobotStatus::NAV_CANCEL, "NAV_CANCEL");
             }
-            publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), "%s", status_log.c_str());
-            this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
-
-        } else if (status == GoalStatus::STATUS_CANCELED) {
+            break;
+        case GoalStatus::STATUS_ABORTED:
             if (!waypoints_following_) {
-                fitrobot_status = RobotStatus::NAV_CANCEL;
-                publish_status(fitrobot_status);
-                RCLCPP_INFO(this->get_logger(), "NAV_CANCEL");
-                this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
+                set_and_log_status(RobotStatus::NAV_FAILED, "NAV_FAILED");
             }
-
-        } else if (status == GoalStatus::STATUS_ABORTED) {
-            if (!waypoints_following_) {
-                fitrobot_status = RobotStatus::NAV_FAILED;
-                publish_status(fitrobot_status);
-                RCLCPP_INFO(this->get_logger(), "NAV_FAILED");
-                this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
-            }
+            break;
+        default:
+            break;
         }
     }
 
     void follower_waypoints_status_callback(const GoalStatusArray::SharedPtr msg) {
         auto status = msg->status_list.back().status;
-        int fitrobot_status;
-        string status_log;
-        if (status == GoalStatus::STATUS_EXECUTING) {
-            waypoints_following_ = true;
-
-        } else if (status == GoalStatus::STATUS_SUCCEEDED) {
-            waypoints_following_ = false;
-            fitrobot_status = RobotStatus::NAV_WF_COMPLETED;
-            publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), "NAV_WF_COMPLETED");
-            this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
-
-        } else if (status == GoalStatus::STATUS_CANCELED) {
-            waypoints_following_ = false;
-            fitrobot_status = RobotStatus::NAV_WF_CANCEL;
-            publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), "NAV_WF_CANCEL");
-            this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
-
-        } else if (status == GoalStatus::STATUS_ABORTED) {
-            waypoints_following_ = false;
-            fitrobot_status = RobotStatus::NAV_WF_FAILED;
-            publish_status(fitrobot_status);
-            RCLCPP_INFO(this->get_logger(), "NAV_WF_FAILED");
-            this->set_parameter(Parameter("fitrobot_status", fitrobot_status));
+        auto update_status = [&](int new_status, const std::string& log) {
+            waypoints_following_ = (status == GoalStatus::STATUS_EXECUTING);
+            publish_status(new_status);
+            RCLCPP_INFO(this->get_logger(), "%s", log.c_str());
+            this->set_parameter(Parameter("fitrobot_status", new_status));
+            update_robot(new_status);
+        };
+        switch (status) {
+        case GoalStatus::STATUS_EXECUTING:
+            waypoints_following_ = true; // 更新為執行狀態，但不需做進一步處理
+            break;
+        case GoalStatus::STATUS_SUCCEEDED:
+            update_status(RobotStatus::NAV_WF_COMPLETED, "NAV_WF_COMPLETED");
+            break;
+        case GoalStatus::STATUS_CANCELED:
+            update_status(RobotStatus::NAV_WF_CANCEL, "NAV_WF_CANCEL");
+            break;
+        case GoalStatus::STATUS_ABORTED:
+            update_status(RobotStatus::NAV_WF_FAILED, "NAV_WF_FAILED");
+            break;
+        default:
+            break;
         }
     }
 
@@ -292,49 +280,76 @@ class RobotStatusCheckNode : public rclcpp::Node {
         return ip_address;
     }
 
+    void register_robot(int robot_status) {
+        if (!register_robot_client->wait_for_service(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "Register robot!");
+        auto request = std::make_shared<Para1::Request>();
+        request->parameter1_name = "register_robot";
+        ip = get_ip_address();
+        RCLCPP_INFO(this->get_logger(), "IP: %s", ip.c_str());
+        request->parameter1_value = "{'robot_namespace': '" + robot_namespace +
+                                    "', 'robot_status': " + std::to_string(robot_status) +
+                                    ", 'robot_ip': '" + ip + "'}";
+        auto future = register_robot_client->async_send_request(request);
+        auto status = future.wait_for(std::chrono::milliseconds(5000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                if (result->success == "true") {
+                    RCLCPP_INFO(this->get_logger(), "Register robot success!");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter set operation to complete.");
+        }
+    }
+
+    void update_robot(int robot_status) {
+        if (!register_robot_client->wait_for_service(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(this->get_logger(), "update_robot service not available");
+            return;
+        }
+        RCLCPP_INFO(this->get_logger(), "Update robot!");
+        auto request = std::make_shared<Para1::Request>();
+        request->parameter1_name = "update_robot";
+        request->parameter1_value = "{'robot_namespace': '" + robot_namespace +
+                                    "', 'robot_status': " + std::to_string(robot_status) + "}";
+        auto future = register_robot_client->async_send_request(request);
+        auto status = future.wait_for(std::chrono::milliseconds(5000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                if (result->success == "true") {
+                    RCLCPP_INFO(this->get_logger(), "Update robot success!");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Update robot failed!");
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter set operation to complete.");
+        }
+    }
+
     void status_check() {
         try {
             int robot_status = this->get_parameter("fitrobot_status").as_int();
-
             if (robot_status == RobotStatus::STANDBY) {
                 if (is_tf_odom_baselink_existed()) {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
-
-                    // register robot
-                    if (!register_robot_client->wait_for_service(std::chrono::seconds(5))) {
-                        RCLCPP_ERROR(this->get_logger(), "register_robot service not available");
-                        return;
-                    }
-
-                    RCLCPP_INFO(this->get_logger(), "Register robot!");
-                    auto request = std::make_shared<Para1::Request>();
-                    request->parameter1_name = "register_robot";
-                    ip = get_ip_address();
-                    RCLCPP_INFO(this->get_logger(), "IP: %s", ip.c_str());
-                    request->parameter1_value =
-                        "{'robot_namespace': '" + robot_namespace +
-                        "', 'robot_status': " + std::to_string(robot_status) + ", 'robot_ip': '" +
-                        ip + "'}";
-                    auto future = register_robot_client->async_send_request(request);
-                    auto status = future.wait_for(std::chrono::milliseconds(5000));
-                    if (status == std::future_status::ready) {
-                        try {
-                            auto result = future.get();
-                            if (result->success == "true") {
-                                RCLCPP_INFO(this->get_logger(), "Register robot success!");
-                            } else {
-                                RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
-                            }
-                        } catch (const std::exception& e) {
-                            RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
-                        }
-                    } else {
-                        RCLCPP_ERROR(
-                            this->get_logger(),
-                            "Timeout while waiting for the parameter set operation to complete.");
-                    }
+                    register_robot(RobotStatus::BRINGUP);
                 }
                 return;
 
@@ -343,6 +358,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
                     publish_status(RobotStatus::NAV_PREPARE);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
+                    update_robot(RobotStatus::NAV_PREPARE);
                 } else if (!is_tf_odom_baselink_existed()) {
                     RCLCPP_INFO(this->get_logger(), "STANDBY");
                     publish_status(RobotStatus::STANDBY);
@@ -355,6 +371,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                    update_robot(RobotStatus::BRINGUP);
                 }
                 return;
 
@@ -362,8 +379,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 if (is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
                     publish_status(RobotStatus::NAV_READY);
-                    is_localized_ = true;
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
+                    update_robot(RobotStatus::NAV_READY);
+                    is_localized_ = true;
                 }
                 return;
             }
@@ -373,6 +391,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
+                    update_robot(RobotStatus::BRINGUP);
                 }
                 return;
             } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) !=
@@ -380,8 +399,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 if (!is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
                     publish_status(RobotStatus::NAV_PREPARE);
-                    is_localized_ = false;
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
+                    update_robot(RobotStatus::NAV_PREPARE);
+                    is_localized_ = false;
                 }
                 return;
             }

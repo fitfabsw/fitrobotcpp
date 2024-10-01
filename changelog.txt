@@ -1,3 +1,11 @@
+2024/9/30 18:30
+refactor: update each robot status whenever possible
+ - check_robot_status.cpp
+  - add update_robot() function
+  - refactor navigate_to_pose_goal_status_callback & follower_waypoints_status_callback
+ - master_node.cpp
+  - remove launch_service_active flag check in cleanup
+
 2024/9/30 16:30
 fix: modify check_nav2_running & check_slam_running
  - considering robot namespace

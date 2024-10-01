@@ -169,20 +169,17 @@ class MasterAsyncService : public rclcpp::Node {
     }
 
     void clean_up(bool ensure_bringup = true) {
-        if (launch_service_active) {
-            RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
-            shutdown_launch_service();
-            if (ensure_bringup) {
-                while (1) {
-                    int robot_status = get_robot_status();
-                    if (robot_status == 1) {
-                        break;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
+        shutdown_launch_service();
+        if (ensure_bringup) {
+            while (1) {
+                int robot_status = get_robot_status();
+                if (robot_status == 1) {
+                    break;
                 }
-                RCLCPP_INFO(this->get_logger(), "clean_up: done. robot_status back to BRINGUP");
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
             }
-            launch_service_active = false;
+            RCLCPP_INFO(this->get_logger(), "clean_up: done. robot_status back to BRINGUP");
         }
     }
 
@@ -214,8 +211,9 @@ class MasterAsyncService : public rclcpp::Node {
             launch_service_active = true;
             // 設置子進程的進程組 ID 與子進程本身相同
             setpgid(pid, pid);
-            RCLCPP_INFO(this->get_logger(), "Successfully launched %s with launch file %s. PID: %d",
-                        package_name.c_str(), launch_file.c_str(), pid);
+            RCLCPP_DEBUG(this->get_logger(),
+                         "Successfully launched %s with launch file %s. PID: %d",
+                         package_name.c_str(), launch_file.c_str(), pid);
         }
     }
 
@@ -225,14 +223,14 @@ class MasterAsyncService : public rclcpp::Node {
             return;
         // 使用負的 PID 來表示進程組 ID
         if (kill(-pid, SIGTERM) == 0) {
-            RCLCPP_INFO(this->get_logger(), "Successfully sent SIGTERM to process group %d", pid);
+            RCLCPP_DEBUG(this->get_logger(), "Successfully sent SIGTERM to process group %d", pid);
         } else {
             RCLCPP_ERROR(this->get_logger(), "Failed to send SIGTERM to process group %d: %s", pid,
                          strerror(errno));
         }
         // 可選：使用 SIGKILL 強制終止所有進程
         if (kill(-pid, SIGKILL) == 0) {
-            RCLCPP_INFO(this->get_logger(), "Successfully sent SIGKILL to process group %d", pid);
+            RCLCPP_DEBUG(this->get_logger(), "Successfully sent SIGKILL to process group %d", pid);
         } else {
             RCLCPP_ERROR(this->get_logger(), "Failed to send SIGKILL to process group %d: %s", pid,
                          strerror(errno));
@@ -374,8 +372,8 @@ class MasterAsyncService : public rclcpp::Node {
                 auto result = future.get();
                 if (!result.empty()) {
                     param_value = result[0]; // Save the parameter value
-                    RCLCPP_INFO(this->get_logger(), "Successfully got parameter %s from node %s",
-                                param_name.c_str(), node_name.c_str());
+                    RCLCPP_DEBUG(this->get_logger(), "Successfully got parameter %s from node %s",
+                                 param_name.c_str(), node_name.c_str());
                     return true;
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to get parameter %s from node %s",
@@ -417,8 +415,8 @@ class MasterAsyncService : public rclcpp::Node {
             try {
                 auto result = future.get();
                 if (result[0].successful) {
-                    RCLCPP_INFO(this->get_logger(), "Successfully set parameter %s on node %s",
-                                param_value.get_name().c_str(), node_name.c_str());
+                    RCLCPP_DEBUG(this->get_logger(), "Successfully set parameter %s on node %s",
+                                 param_value.get_name().c_str(), node_name.c_str());
                     return true;
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to set parameter: %s",

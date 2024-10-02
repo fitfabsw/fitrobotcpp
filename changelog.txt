@@ -1,3 +1,7 @@
+2024/10/2 11:10
+perf: replace vector with unordered_set of robot_status in check_robot_status.cpp
+ - suggested by gpt when asking for performance improvement
+
 2024/9/30 18:30
 refactor: update each robot status whenever possible
  - check_robot_status.cpp

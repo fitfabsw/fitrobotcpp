@@ -20,6 +20,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(nav2_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(fitrobot_interfaces REQUIRED)
 
@@ -42,7 +43,7 @@ FetchContent_MakeAvailable(json)
 # This section will create an executable for the node
 add_executable(check_robot_status src/check_robot_status.cpp)
 ament_target_dependencies(
-  check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces
+  check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces lifecycle_msgs
 )
 
 add_executable(master_node src/master_node.cpp)
@@ -54,6 +55,7 @@ ament_target_dependencies(
   std_msgs
   action_msgs
   nav2_msgs
+  lifecycle_msgs
   std_srvs
   fitrobot_interfaces
 )

@@ -4,6 +4,7 @@
 #include "fitrobot_interfaces/srv/slam.hpp"
 #include "fitrobot_interfaces/srv/subscription_count.hpp"
 #include "fitrobot_interfaces/srv/terminate_process.hpp"
+#include "fitrobot_interfaces/srv/trigger.hpp"
 #include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <memory>
@@ -103,8 +104,9 @@ class MasterAsyncService : public rclcpp::Node {
             "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
 
-        rclcpp::SubscriptionOptions sub_options;
-        sub_options.callback_group = service_cbg_MU;
+        lifecycle_nav_service_ = this->create_service<fitrobot_interfaces::srv::Trigger>(
+            "lifecycle_nav", std::bind(&MasterAsyncService::lifecycle_nav_callback, this, _1, _2),
+            rmw_qos_profile_services_default, service_cbg_MU);
 
         initialpose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "initialpose", 10, std::bind(&MasterAsyncService::initialpose_callback, this, _1),
@@ -139,6 +141,7 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::Service<fitrobot_interfaces::srv::SubscriptionCount>::SharedPtr subscription_count_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr param_set_service_;
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr manage_nodes_service_;
+    rclcpp::Service<fitrobot_interfaces::srv::Trigger>::SharedPtr lifecycle_nav_service_;
     std::unordered_map<std::string, std::shared_ptr<rclcpp::AsyncParametersClient>> param_clients_;
     std::shared_ptr<rclcpp::AsyncParametersClient> param_client_robot_status;
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
@@ -264,6 +267,36 @@ class MasterAsyncService : public rclcpp::Node {
         } else {
             RCLCPP_ERROR(this->get_logger(),
                          "Timeout while waiting for ManageLifecycleNodes service to complete.");
+        }
+    }
+
+    void startup_nav(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
+        lifecycle_manage_cmd(client, 0);
+    }
+
+    void pause_nav(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
+        lifecycle_manage_cmd(client, 1);
+    }
+
+    void resume_nav(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
+        lifecycle_manage_cmd(client, 2);
+    }
+
+    void reset_nav(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
+        lifecycle_manage_cmd(client, 3);
+    }
+
+    void lifecycle_nav_callback(
+        const std::shared_ptr<fitrobot_interfaces::srv::Trigger::Request> request,
+        std::shared_ptr<fitrobot_interfaces::srv::Trigger::Response> response) {
+        if (request->trigger_name == "startup") {
+            startup_nav(lfm_nav_client);
+        } else if (request->trigger_name == "pause") {
+            pause_nav(lfm_nav_client);
+        } else if (request->trigger_name == "resume") {
+            resume_nav(lfm_nav_client);
+        } else if (request->trigger_name == "reset") {
+            reset_nav(lfm_nav_client);
         }
     }
 

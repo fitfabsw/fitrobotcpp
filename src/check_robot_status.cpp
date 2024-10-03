@@ -1,5 +1,6 @@
 #include "fitrobot_interfaces/msg/robot_status.hpp"
 #include "fitrobot_interfaces/srv/para1.hpp"
+#include "fitrobot_interfaces/srv/trigger.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "tf2_ros/create_timer_ros.h"
 #include <action_msgs/msg/goal_status.hpp>
@@ -7,6 +8,7 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <ifaddrs.h>
+#include <lifecycle_msgs/srv/change_state.hpp>
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -54,6 +56,9 @@ using action_msgs::msg::GoalStatus;
 using action_msgs::msg::GoalStatusArray;
 using fitrobot_interfaces::msg::RobotStatus;
 using fitrobot_interfaces::srv::Para1;
+using fitrobot_interfaces::srv::Trigger;
+using lifecycle_msgs::msg::Transition;
+using lifecycle_msgs::srv::ChangeState;
 using rclcpp::Parameter;
 using std::string;
 using std::placeholders::_1;
@@ -118,6 +123,12 @@ class RobotStatusCheckNode : public rclcpp::Node {
         register_robot_client = this->create_client<Para1>(
             "/fitparam", rmw_qos_profile_services_default, service_cbg_MU);
 
+        lifecycle_nav_client = this->create_client<fitrobot_interfaces::srv::Trigger>(
+            "lifecycle_nav", rmw_qos_profile_services_default, service_cbg_MU);
+
+        client_ =
+            this->create_client<lifecycle_msgs::srv::ChangeState>("bt_navigator/change_state");
+
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
         nav_statuses = {RobotStatus::NAV_READY,        RobotStatus::NAV_PREPARE_TO_READY,
@@ -162,6 +173,8 @@ class RobotStatusCheckNode : public rclcpp::Node {
         };
         switch (status) {
         case GoalStatus::STATUS_EXECUTING:
+            // lifecycle_node_cmd(client_, Transition::TRANSITION_DEACTIVATE);
+            // lifecycle_nav("startup");
             set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_RUNNING
                                                     : RobotStatus::NAV_RUNNING,
                                waypoints_following_ ? "NAV_WF_RUNNING" : "NAV_RUNNING");
@@ -277,6 +290,51 @@ class RobotStatusCheckNode : public rclcpp::Node {
         }
         freeifaddrs(ifaddr); // 釋放記憶體
         return ip_address;
+    }
+
+    void lifecycle_node_cmd(rclcpp::Client<ChangeState>::SharedPtr& client, int transition_cmd) {
+        auto request = std::make_shared<ChangeState::Request>();
+        request->transition.id = transition_cmd;
+        // request->transition.label = cmd;
+        auto future = client->async_send_request(request);
+        auto status = future.wait_for(std::chrono::milliseconds(3000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                RCLCPP_INFO(this->get_logger(), "lifecycle_node_cmd success!");
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter set operation to complete.");
+        }
+    }
+
+    void lifecycle_nav(std::string cmd) {
+        if (!lifecycle_nav_client->wait_for_service(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(this->get_logger(), "lifecycle_nav service not available");
+            return;
+        }
+        auto request = std::make_shared<fitrobot_interfaces::srv::Trigger::Request>();
+        request->trigger_name = cmd;
+        auto future = lifecycle_nav_client->async_send_request(request);
+        auto status = future.wait_for(std::chrono::milliseconds(5000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                if (result->success == "true") {
+                    RCLCPP_INFO(this->get_logger(), "lifecycle_nav success!");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "lifecycle_nav failed!");
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter set operation to complete.");
+        }
     }
 
     void register_robot(int robot_status) {
@@ -432,6 +490,8 @@ class RobotStatusCheckNode : public rclcpp::Node {
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service_;
 
     rclcpp::Client<Para1>::SharedPtr register_robot_client;
+    rclcpp::Client<fitrobot_interfaces::srv::Trigger>::SharedPtr lifecycle_nav_client;
+    rclcpp::Client<ChangeState>::SharedPtr client_;
 
     rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_nav_to_pose_;
     rclcpp::Subscription<GoalStatusArray>::SharedPtr sub_follow_wp_;

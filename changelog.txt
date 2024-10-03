@@ -1,3 +1,6 @@
+2024/10/3 14:50
+feat: Add service lifecycle_nav to manage lifecycle_manager_navigation statues
+
 2024/10/2 11:10
 perf: replace vector with unordered_set of robot_status in check_robot_status.cpp
  - suggested by gpt when asking for performance improvement

@@ -1,3 +1,9 @@
+2024/10/4 12:00
+perf: set nav2 nodes to pause state while not running
+ - Add enable_sleep parameter to check_robot_status
+   if set to true, check_robot_status will pause all nav2 lifecycle nodes while not running
+ - Add topic goalpose to resume nodes before start navigation
+
 2024/10/3 14:50
 feat: Add service lifecycle_nav to manage lifecycle_manager_navigation statues
 

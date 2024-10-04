@@ -1,6 +1,7 @@
 #include "fitrobot_interfaces/msg/robot_status.hpp"
 #include "fitrobot_interfaces/srv/para1.hpp"
 #include "fitrobot_interfaces/srv/trigger.hpp"
+#include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "tf2_ros/create_timer_ros.h"
 #include <action_msgs/msg/goal_status.hpp>
@@ -87,6 +88,8 @@ class RobotStatusCheckNode : public rclcpp::Node {
         set_robot_info_from_env();
 
         this->declare_parameter("fitrobot_status", RobotStatus::STANDBY);
+        this->declare_parameter("enable_sleep", false);
+        this->declare_parameter("timeout_to_sleep", 10);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -131,12 +134,19 @@ class RobotStatusCheckNode : public rclcpp::Node {
 
         RCLCPP_INFO(this->get_logger(), "Node initialized: STANDBY");
 
-        nav_statuses = {RobotStatus::NAV_READY,        RobotStatus::NAV_PREPARE_TO_READY,
-                        RobotStatus::NAV_RUNNING,      RobotStatus::NAV_ARRIVED,
-                        RobotStatus::NAV_CANCEL,       RobotStatus::NAV_FAILED,
-                        RobotStatus::NAV_WF_RUNNING,   RobotStatus::NAV_WF_ARRIVED,
-                        RobotStatus::NAV_WF_COMPLETED, RobotStatus::NAV_WF_CANCEL,
-                        RobotStatus::NAV_WF_FAILED};
+        nav_statuses = {RobotStatus::NAV_PREPARE_TO_READY, RobotStatus::NAV_READY,
+                        RobotStatus::NAV_RUNNING, // Uncomment if needed
+                        RobotStatus::NAV_ARRIVED,          RobotStatus::NAV_CANCEL,
+                        RobotStatus::NAV_FAILED,
+                        RobotStatus::NAV_WF_RUNNING, // Uncomment if needed
+                        RobotStatus::NAV_WF_ARRIVED,       RobotStatus::NAV_WF_COMPLETED,
+                        RobotStatus::NAV_WF_CANCEL,        RobotStatus::NAV_WF_FAILED};
+        cansleep_statuses = {RobotStatus::NAV_READY,      RobotStatus::NAV_ARRIVED,
+                             RobotStatus::NAV_CANCEL,     RobotStatus::NAV_FAILED,
+                             RobotStatus::NAV_WF_ARRIVED, RobotStatus::NAV_WF_COMPLETED,
+                             RobotStatus::NAV_WF_CANCEL,  RobotStatus::NAV_WF_FAILED};
+        running_statuses = {RobotStatus::NAV_RUNNING, RobotStatus::NAV_WF_RUNNING};
+        is_deactivated_ = false;
     }
 
   private:
@@ -292,6 +302,32 @@ class RobotStatusCheckNode : public rclcpp::Node {
         return ip_address;
     }
 
+    void lifecycle_manage_cmd(std::string cmd) {
+        if (!lifecycle_nav_client->wait_for_service(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(this->get_logger(), "lifecycle_manage_cmd service not available");
+            return;
+        }
+        auto request = std::make_shared<fitrobot_interfaces::srv::Trigger::Request>();
+        request->trigger_name = cmd;
+        auto future = lifecycle_nav_client->async_send_request(request);
+        auto status = future.wait_for(std::chrono::milliseconds(5000));
+        if (status == std::future_status::ready) {
+            try {
+                auto result = future.get();
+                if (result->success == "true") {
+                    RCLCPP_INFO(this->get_logger(), "lifecycle_manage_cmd success!");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "lifecycle_manage_cmd failed!");
+                }
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(),
+                         "Timeout while waiting for the parameter set operation to complete.");
+        }
+    }
+
     void lifecycle_node_cmd(rclcpp::Client<ChangeState>::SharedPtr& client, int transition_cmd) {
         auto request = std::make_shared<ChangeState::Request>();
         request->transition.id = transition_cmd;
@@ -401,6 +437,23 @@ class RobotStatusCheckNode : public rclcpp::Node {
     void status_check() {
         try {
             int robot_status = this->get_parameter("fitrobot_status").as_int();
+            if (!is_deactivated_) {
+                if (std::find(cansleep_statuses.begin(), cansleep_statuses.end(), robot_status) !=
+                    cansleep_statuses.end()) {
+                    // pause all the nav2 lifecycle nodes
+                    RCLCPP_INFO(this->get_logger(), "watch for sleep");
+                    if (this->get_parameter("enable_sleep").as_bool()) {
+                        RCLCPP_INFO(this->get_logger(), "Sleeping...");
+                        lifecycle_manage_cmd("pause");
+                        is_deactivated_ = true;
+                    }
+                }
+            } else if (std::find(running_statuses.begin(), running_statuses.end(), robot_status) !=
+                       running_statuses.end()) {
+                is_deactivated_ = false;
+                RCLCPP_INFO(this->get_logger(), "Back to running. Set is_deactivated_ to false");
+            }
+
             if (robot_status == RobotStatus::STANDBY) {
                 if (is_tf_odom_baselink_existed()) {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
@@ -408,8 +461,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                     register_robot(RobotStatus::BRINGUP);
                 }
-                return;
-
             } else if (robot_status == RobotStatus::BRINGUP) {
                 if (check_nav2_running()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
@@ -421,8 +472,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     publish_status(RobotStatus::STANDBY);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::STANDBY));
                 }
-                return;
-
             } else if (robot_status == RobotStatus::NAV_PREPARE) {
                 if (!check_nav2_running()) {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
@@ -430,8 +479,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                     update_robot(RobotStatus::BRINGUP);
                 }
-                return;
-
             } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY) {
                 if (is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
@@ -439,20 +486,22 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
                     update_robot(RobotStatus::NAV_READY);
                     is_localized_ = true;
+                } else {
+                    RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
+                    publish_status(RobotStatus::NAV_PREPARE);
+                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
+                    update_robot(RobotStatus::NAV_PREPARE);
+                    is_localized_ = false;
                 }
-                return;
-            }
-
-            if (robot_status == RobotStatus::SLAM) {
+            } else if (robot_status == RobotStatus::SLAM) {
                 if (!check_slam_running()) {
                     RCLCPP_INFO(this->get_logger(), "BRINGUP");
                     publish_status(RobotStatus::BRINGUP);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                     update_robot(RobotStatus::BRINGUP);
                 }
-                return;
-            } else if (nav_statuses.find(robot_status) !=
-                       nav_statuses.end()) { // 使用 unordered_set 檢查狀態
+            } else if (std::find(nav_statuses.begin(), nav_statuses.end(), robot_status) !=
+                       nav_statuses.end()) {
                 if (!is_tf_odom_map_existed()) {
                     RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
                     publish_status(RobotStatus::NAV_PREPARE);
@@ -460,7 +509,6 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     update_robot(RobotStatus::NAV_PREPARE);
                     is_localized_ = false;
                 }
-                return;
             }
         } catch (tf2::LookupException& ex) {
             RCLCPP_ERROR(this->get_logger(), "Transform lookup failed: %s", ex.what());
@@ -500,11 +548,14 @@ class RobotStatusCheckNode : public rclcpp::Node {
     bool is_localized_;
     bool waypoints_following_;
     std::unordered_set<int> nav_statuses;
+    std::vector<int> cansleep_statuses;
+    std::vector<int> running_statuses;
     OnSetParametersCallbackHandle::SharedPtr callback_handle_;
     rclcpp::CallbackGroup::SharedPtr callback_group_;
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
     std::string ip;
+    bool is_deactivated_;
 };
 
 int main(int argc, char** argv) {

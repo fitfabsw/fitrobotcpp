@@ -43,7 +43,13 @@ FetchContent_MakeAvailable(json)
 # This section will create an executable for the node
 add_executable(check_robot_status src/check_robot_status.cpp)
 ament_target_dependencies(
-  check_robot_status rclcpp tf2_ros std_srvs fitrobot_interfaces lifecycle_msgs
+  check_robot_status
+  rclcpp
+  tf2_ros
+  std_srvs
+  fitrobot_interfaces
+  lifecycle_msgs
+  nav2_msgs
 )
 
 add_executable(master_node src/master_node.cpp)

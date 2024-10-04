@@ -5,9 +5,12 @@
 #include "fitrobot_interfaces/srv/subscription_count.hpp"
 #include "fitrobot_interfaces/srv/terminate_process.hpp"
 #include "fitrobot_interfaces/srv/trigger.hpp"
+#include "nav2_msgs/action/follow_waypoints.hpp"
+#include "nav2_msgs/action/navigate_through_poses.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <lifecycle_msgs/srv/get_state.hpp>
@@ -27,6 +30,8 @@
 #include <unordered_map>
 
 using fitrobot_interfaces::msg::RobotStatus;
+using nav2_msgs::action::FollowWaypoints;
+using nav2_msgs::action::NavigateThroughPoses;
 using nav2_msgs::action::NavigateToPose;
 using std::placeholders::_1;
 using std::placeholders::_2;
@@ -113,6 +118,13 @@ class MasterAsyncService : public rclcpp::Node {
         goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "goalpose", rclcpp::SystemDefaultsQoS(),
             std::bind(&MasterAsyncService::onGoalPoseReceived, this, std::placeholders::_1));
+        // nav_thru_poses_client_ =
+        //     rclcpp_action::create_client<NavigateThroughPoses>(this, "navigate_through_poses");
+        follow_waypoints_client_ =
+            rclcpp_action::create_client<FollowWaypoints>(this, "follow_waypoints");
+        goals_sub = this->create_subscription<geometry_msgs::msg::PoseArray>(
+            "goalposes", rclcpp::SystemDefaultsQoS(),
+            std::bind(&MasterAsyncService::onGoalPoseArrayReceived, this, std::placeholders::_1));
 
         bt_navigator_getstate_client = this->create_client<lifecycle_msgs::srv::GetState>(
             node_namespace + "/bt_navigator/get_state", rmw_qos_profile_services_default,
@@ -130,11 +142,6 @@ class MasterAsyncService : public rclcpp::Node {
         } else {
             throw std::invalid_argument("Unknown robot type: " + robot_type);
         }
-
-        // pause all the nav2 lifecycle nodes
-        // if (this->get_parameter("enable_sleep").as_bool()) {
-        //     pause_nav(lfm_nav_client);
-        // }
     }
 
   private:
@@ -160,7 +167,10 @@ class MasterAsyncService : public rclcpp::Node {
 
     // rclcpp_action::Server<NavigateToPose>::SharedPtr nav_to_pose_service_;
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav_to_pose_client_;
+    // rclcpp_action::Client<NavigateThroughPoses>::SharedPtr nav_thru_poses_client_;
+    rclcpp_action::Client<FollowWaypoints>::SharedPtr follow_waypoints_client_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr goals_sub;
 
     std::unordered_map<std::string, std::shared_ptr<rclcpp::AsyncParametersClient>> param_clients_;
     std::shared_ptr<rclcpp::AsyncParametersClient> param_client_robot_status;
@@ -206,6 +216,27 @@ class MasterAsyncService : public rclcpp::Node {
         goal.pose = *pose;
         nav_to_pose_client_->wait_for_action_server(std::chrono::seconds(5));
         nav_to_pose_client_->async_send_goal(goal);
+    }
+
+    void onGoalPoseArrayReceived(const geometry_msgs::msg::PoseArray::SharedPtr poses) {
+        // startup all the lifecycle nodes
+        startup_nav(lfm_nav_client);
+        // std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        if (!is_bt_navigator_active()) {
+            RCLCPP_INFO(this->get_logger(),
+                        "bt_navigator is not active, proceeding to navigation.");
+            return;
+        }
+        FollowWaypoints::Goal goal;
+        goal.poses.clear();
+        for (const auto& pose : poses->poses) {
+            geometry_msgs::msg::PoseStamped pose_stamped;
+            pose_stamped.pose = pose;
+            pose_stamped.header = poses->header; // 設置 header
+            goal.poses.push_back(pose_stamped);
+        }
+        follow_waypoints_client_->wait_for_action_server(std::chrono::seconds(5));
+        follow_waypoints_client_->async_send_goal(goal);
     }
 
     void initialpose_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {

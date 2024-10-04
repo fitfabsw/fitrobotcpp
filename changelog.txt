@@ -1,3 +1,12 @@
+2024/10/4 16:30
+feat: add waypoint_follower subscriber in master_node
+ - usage
+   ros2 topic pub -1 /lino2_1234/goalposes geometry_msgs/msg/PoseArray \
+   "{header: {frame_id: map}, poses: [{position: {x: 1.5, y: 0.5}, orientation: {z: 0.707, w: 0.707}}, \
+                                      {position: {x: 0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}}, \
+                                      {position: {x: -0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}} \
+   ]}"
+
 2024/10/4 12:00
 perf: set nav2 nodes to pause state while not running
  - Add enable_sleep parameter to check_robot_status

@@ -1,3 +1,6 @@
+2024/10/5 22:40
+feat: implement go to home when no task left
+
 2024/10/5 13:45
 feat: followWaypoints can handle enable_sleep=true case
  - if robot is deactivated, followWaypoints will activate before start wf navigation

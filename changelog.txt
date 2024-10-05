@@ -1,3 +1,8 @@
+2024/10/5 13:45
+feat: followWaypoints can handle enable_sleep=true case
+ - if robot is deactivated, followWaypoints will activate before start wf navigation
+ - during the wf navigation, robot will not be deactivated
+
 2024/10/5 13:00
 feat/fix: first attempt to merge fitrobot's waypoint_follower.py into master_node_wpf.cpp
  - reduce cpu usage from 2x% to 2% during waypoint_follow navigation

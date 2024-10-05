@@ -140,11 +140,6 @@ class MasterAsyncService : public rclcpp::Node {
             throw std::invalid_argument("Unknown robot type: " + robot_type);
         }
 
-        // Initialize the FollowWaypoints action client
-        // follow_waypoints_client_ =
-        // rclcpp_action::create_client<nav2_msgs::action::FollowWaypoints>(
-        //     this, "follow_waypoints");
-
         // Register services
         waypoint_follower_srv_ = this->create_service<WaypointFollower>(
             "waypointfollower", std::bind(&MasterAsyncService::waypointFollowerCallback, this,
@@ -277,10 +272,6 @@ class MasterAsyncService : public rclcpp::Node {
     std::condition_variable queue_cv_;
     bool can_consume_queue_ = true;
     std::thread waypoint_queue_thread_;
-
-    // FollowWaypoints action client
-    // rclcpp_action::Client<nav2_msgs::action::FollowWaypoints>::SharedPtr
-    // follow_waypoints_client_;
 
     // Services
     rclcpp::Service<fitrobot_interfaces::srv::WaypointFollower>::SharedPtr waypoint_follower_srv_;
@@ -452,8 +443,7 @@ void MasterAsyncService::lifecycle_nav_callback(
 
 void MasterAsyncService::onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose) {
     // startup all the lifecycle nodes
-    this->startup_nav(this->lfm_nav_client);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    startup_nav(lfm_nav_client);
     if (!is_bt_navigator_active()) {
         RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, proceeding to navigation.");
         return;
@@ -469,7 +459,6 @@ void MasterAsyncService::onGoalPoseArrayReceived(
     const geometry_msgs::msg::PoseArray::SharedPtr poses) {
     // startup all the lifecycle nodes
     startup_nav(lfm_nav_client);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     if (!is_bt_navigator_active()) {
         RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, proceeding to navigation.");
         return;
@@ -569,7 +558,6 @@ void MasterAsyncService::waypointQueueConsumer() {
             queue_cv_.wait(lock,
                            [this]() { return !can_consume_queue_ || !waypoint_queue_.empty(); });
         }
-
         if (!can_consume_queue_) {
             // 如果不能消费队列，释放锁并等待下一次循环
             lock.unlock();
@@ -598,14 +586,6 @@ void MasterAsyncService::waypointFollowerCallback(
     std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Response> response) {
     fitrobot_interfaces::msg::Station station;
     station = request->station;
-    // geometry_msgs::msg::PoseStamped pose;
-    // pose.header.frame_id = "map";
-    // pose.header.stamp = this->now();
-    // pose.pose.position.x = request->station.x;
-    // pose.pose.position.y = request->station.y;
-    // pose.pose.orientation.z = request->station.z;
-    // pose.pose.orientation.w = request->station.w;
-
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         waypoint_queue_.push(station);
@@ -613,7 +593,6 @@ void MasterAsyncService::waypointFollowerCallback(
                     waypoint_queue_.size());
         queue_cv_.notify_one();
     }
-
     response->ack = "Waypoint added to queue.";
 }
 
@@ -846,6 +825,7 @@ void MasterAsyncService::followWaypoints(
     const std::vector<fitrobot_interfaces::msg::Station>& waypoints) {
     can_consume_queue_ = false;
     // const std::vector<geometry_msgs::msg::PoseStamped>& waypoints) {
+    startup_nav(lfm_nav_client);
     if (!follow_waypoints_client_->wait_for_action_server(std::chrono::seconds(5))) {
         RCLCPP_ERROR(this->get_logger(), "FollowWaypoints action server not available.");
         return;

@@ -66,6 +66,20 @@ ament_target_dependencies(
   fitrobot_interfaces
 )
 
+add_executable(master_wpf src/master_node_wpf.cpp)
+ament_target_dependencies(
+  master_wpf
+  rclcpp
+  tf2
+  tf2_ros
+  std_msgs
+  action_msgs
+  nav2_msgs
+  lifecycle_msgs
+  std_srvs
+  fitrobot_interfaces
+)
+
 # === legacy trial-and-error code ===
 # add_library(basic_navigator_lib SHARED src/robot_navigator.cpp )
 # ament_target_dependencies(basic_navigator_lib rclcpp std_srvs rclcpp_action
@@ -94,6 +108,8 @@ include_directories(
 install(DIRECTORY include/ DESTINATION include)
 # install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
-install(TARGETS master_node check_robot_status DESTINATION lib/${PROJECT_NAME})
+install(TARGETS master_node check_robot_status master_wpf
+        DESTINATION lib/${PROJECT_NAME}
+)
 
 ament_package()

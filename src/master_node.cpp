@@ -95,13 +95,6 @@ class MasterAsyncService : public rclcpp::Node {
             "subscription_count",
             std::bind(&MasterAsyncService::subscription_count_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-        // param_set_service_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
-        //     "reconfigure_map_mask",
-        //     std::bind(&MasterAsyncService::reconfigure_map_mask, this, _1, _2),
-        //     rmw_qos_profile_services_default, service_cbg_MU);
-        // manage_nodes_service_ = this->create_service<std_srvs::srv::Empty>(
-        //     "manage_nodes", std::bind(&MasterAsyncService::manage_nodes_callback, this, _1, _2),
-        //     rmw_qos_profile_services_default, service_cbg_MU);
         lifecycle_nav_service_ = this->create_service<fitrobot_interfaces::srv::Trigger>(
             "lifecycle_nav", std::bind(&MasterAsyncService::lifecycle_nav_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
@@ -109,9 +102,6 @@ class MasterAsyncService : public rclcpp::Node {
         lfm_nav_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
             node_namespace + "/lifecycle_manager_navigation/manage_nodes",
             rmw_qos_profile_services_default, service_cbg_MU);
-        // lfm_costmap_filter_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
-        //     node_namespace + "/lifecycle_manager_costmap_filters/manage_nodes",
-        //     rmw_qos_profile_services_default, service_cbg_MU);
 
         nav_to_pose_client_ =
             rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
@@ -176,8 +166,6 @@ class MasterAsyncService : public rclcpp::Node {
     std::shared_ptr<rclcpp::AsyncParametersClient> param_client_robot_status;
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
         lfm_nav_client; // lifecycle_manager_navigation
-    // rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
-    //     lfm_costmap_filter_client; // lifecycle_manager_costmap_filter
     rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr bt_navigator_getstate_client;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
 
@@ -332,11 +320,6 @@ class MasterAsyncService : public rclcpp::Node {
     void
     lifecycle_manage_cmd(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client,
                          int cmd) {
-        // uint8 STARTUP = 0
-        // uint8 PAUSE = 1
-        // uint8 RESUME = 2
-        // uint8 RESET = 3
-        // uint8 SHUTDOWN = 4
         if (!client->wait_for_service(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "ManageLifecycleNodes service not available.");
             return;
@@ -388,22 +371,6 @@ class MasterAsyncService : public rclcpp::Node {
             reset_nav(lfm_nav_client);
         }
     }
-
-    // void
-    // reset_and_startup(rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr& client) {
-    //     RCLCPP_INFO(this->get_logger(), "manage_nodes_callback started");
-    //     lifecycle_manage_cmd(client, 0); // in order to set parameters
-    //     lifecycle_manage_cmd(
-    //         client,
-    //         3); // after params are set, need to reset to re-configure parameters to take effect
-    //     lifecycle_manage_cmd(client, 0);
-    // }
-
-    // void manage_nodes_callback(const std::shared_ptr<std_srvs::srv::Empty::Request> request,
-    //                            std::shared_ptr<std_srvs::srv::Empty::Response> response) {
-    //     reset_and_startup(lfm_nav_client);
-    //     reset_and_startup(lfm_costmap_filter_client);
-    // }
 
     void set_robot_info_from_env() {
         const char* robot_info = std::getenv("ROBOT_INFO");
@@ -580,15 +547,6 @@ class MasterAsyncService : public rclcpp::Node {
             }
         }
     }
-
-    // void reconfigure_map_mask(
-    //     const std::shared_ptr<fitrobot_interfaces::srv::Navigation::Request> request,
-    //     std::shared_ptr<fitrobot_interfaces::srv::Navigation::Response> response) {
-    //     std::string worldname = request->worldname;
-    //     set_parameters_map_mask(worldname);
-    //     reset_and_startup(lfm_nav_client);
-    //     reset_and_startup(lfm_costmap_filter_client);
-    // }
 
     void run_navigation_async(std::string worldname) {
         std::string launch_file = "nav.launch.py";

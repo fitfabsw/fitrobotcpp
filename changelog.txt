@@ -1,10 +1,19 @@
+2024/10/5 13:00
+feat/fix: first attempt to merge fitrobot's waypoint_follower.py into master_node_wpf.cpp
+ - reduce cpu usage from 2x% to 2% during waypoint_follow navigation
+ - replace executable="master_node" to "master_wpf" in master.launch.py in fitrobot if you want to test it
+ - fix: state sometimes change to NAV_WF_RUNNING when it should be NAV_RUNNING or others
+      change timeout from 0.1s to 1s in check_tf in is_tf_odom_map_existed() in check_robot_status.cpp
+
+
+
 2024/10/4 16:30
 feat: add waypoint_follower subscriber in master_node
  - usage
    ros2 topic pub -1 /lino2_1234/goalposes geometry_msgs/msg/PoseArray \
    "{header: {frame_id: map}, poses: [{position: {x: 1.5, y: 0.5}, orientation: {z: 0.707, w: 0.707}}, \
-                                      {position: {x: 0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}}, \
-                                      {position: {x: -0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}} \
+                                     {position: {x: 0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}}, \
+                                     {position: {x: -0.5, y: -0.5}, orientation: {z: 0.707, w: 0.707}} \
    ]}"
 
 2024/10/4 12:00

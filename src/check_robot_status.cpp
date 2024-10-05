@@ -141,10 +141,11 @@ class RobotStatusCheckNode : public rclcpp::Node {
                         RobotStatus::NAV_WF_RUNNING, // Uncomment if needed
                         RobotStatus::NAV_WF_ARRIVED,       RobotStatus::NAV_WF_COMPLETED,
                         RobotStatus::NAV_WF_CANCEL,        RobotStatus::NAV_WF_FAILED};
-        cansleep_statuses = {RobotStatus::NAV_READY,      RobotStatus::NAV_ARRIVED,
-                             RobotStatus::NAV_CANCEL,     RobotStatus::NAV_FAILED,
-                             RobotStatus::NAV_WF_ARRIVED, RobotStatus::NAV_WF_COMPLETED,
-                             RobotStatus::NAV_WF_CANCEL,  RobotStatus::NAV_WF_FAILED};
+        cansleep_statuses = {RobotStatus::NAV_READY, RobotStatus::NAV_ARRIVED,
+                             RobotStatus::NAV_CANCEL, RobotStatus::NAV_FAILED,
+                             RobotStatus::NAV_WF_COMPLETED,
+                             // RobotStatus::NAV_WF_ARRIVED, RobotStatus::NAV_WF_COMPLETED,
+                             RobotStatus::NAV_WF_CANCEL, RobotStatus::NAV_WF_FAILED};
         running_statuses = {RobotStatus::NAV_RUNNING, RobotStatus::NAV_WF_RUNNING};
         is_deactivated_ = false;
     }
@@ -250,9 +251,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
         return canTransform;
     }
 
-    bool is_tf_odom_baselink_existed() { return check_tf("odom", "base_link", 0.9); }
+    bool is_tf_odom_baselink_existed() { return check_tf("odom", "base_link", 1.0); }
 
-    bool is_tf_odom_map_existed() { return check_tf("map", "odom", 0.1); }
+    bool is_tf_odom_map_existed() { return check_tf("map", "odom", 1.0); }
 
     bool check_substring(const std::string& substring) {
         auto node_names = this->get_node_names();
@@ -479,19 +480,14 @@ class RobotStatusCheckNode : public rclcpp::Node {
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::BRINGUP));
                     update_robot(RobotStatus::BRINGUP);
                 }
-            } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY) {
+            } else if (robot_status == RobotStatus::NAV_PREPARE_TO_READY ||
+                       robot_status == RobotStatus::NAV_PREPARE) {
                 if (is_tf_odom_map_existed()) {
-                    RCLCPP_INFO(this->get_logger(), "NAV_STANDBY");
+                    RCLCPP_INFO(this->get_logger(), "NAV_READY");
                     publish_status(RobotStatus::NAV_READY);
                     this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_READY));
                     update_robot(RobotStatus::NAV_READY);
                     is_localized_ = true;
-                } else {
-                    RCLCPP_INFO(this->get_logger(), "NAV_PREPARE");
-                    publish_status(RobotStatus::NAV_PREPARE);
-                    this->set_parameter(Parameter("fitrobot_status", RobotStatus::NAV_PREPARE));
-                    update_robot(RobotStatus::NAV_PREPARE);
-                    is_localized_ = false;
                 }
             } else if (robot_status == RobotStatus::SLAM) {
                 if (!check_slam_running()) {

@@ -1,3 +1,8 @@
+2024/10/6 16:20
+feat: allow for cancel task at any index
+ - use deque instaed of queue to allow get/set/pop at certain index
+
+
 2024/10/5 22:40
 feat: implement go to home when no task left
 

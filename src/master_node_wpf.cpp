@@ -1,5 +1,6 @@
 #include "fitrobot_interfaces/msg/robot_status.hpp"
 #include "fitrobot_interfaces/msg/station.hpp"
+#include "fitrobot_interfaces/srv/cancel_nav.hpp"
 #include "fitrobot_interfaces/srv/navigation.hpp"
 #include "fitrobot_interfaces/srv/remote_control.hpp"
 #include "fitrobot_interfaces/srv/slam.hpp"
@@ -14,6 +15,7 @@
 #include "nav2_msgs/srv/manage_lifecycle_nodes.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include <condition_variable>
+#include <deque>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
@@ -38,6 +40,7 @@
 
 using fitrobot_interfaces::msg::RobotStatus;
 using fitrobot_interfaces::msg::Station;
+using fitrobot_interfaces::srv::CancelNav;
 using fitrobot_interfaces::srv::WaypointFollower;
 using nav2_msgs::action::FollowWaypoints;
 using nav2_msgs::action::NavigateThroughPoses;
@@ -66,8 +69,8 @@ class MasterAsyncService : public rclcpp::Node {
         : Node(node_name, options) {
         // Existing initialization...
         set_robot_info_from_env();
-        this->declare_parameter("enable_sleep", false);
-        this->declare_parameter("timeout_to_sleep", 10);
+        // this->declare_parameter("enable_sleep", false);
+        // this->declare_parameter("timeout_to_sleep", 10);
         const char* workspace_ = std::getenv("WORKSPACE");
         if (!workspace_) {
             RCLCPP_WARN(
@@ -107,10 +110,12 @@ class MasterAsyncService : public rclcpp::Node {
         lifecycle_nav_service_ = this->create_service<fitrobot_interfaces::srv::Trigger>(
             "lifecycle_nav", std::bind(&MasterAsyncService::lifecycle_nav_callback, this, _1, _2),
             rmw_qos_profile_services_default, service_cbg_MU);
-
         target_station_srv = this->create_service<fitrobot_interfaces::srv::TargetStation>(
             "target_station", std::bind(&MasterAsyncService::target_station_callback, this,
                                         std::placeholders::_1, std::placeholders::_2));
+        cancel_task_srv = this->create_service<CancelNav>(
+            "cancel_task", std::bind(&MasterAsyncService::cancel_task_callback, this, _1, _2),
+            rmw_qos_profile_services_default, service_cbg_MU);
 
         lfm_nav_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
             node_namespace + "/lifecycle_manager_navigation/manage_nodes",
@@ -207,6 +212,12 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::Service<std_srvs::srv::Empty>::SharedPtr manage_nodes_service_;
     rclcpp::Service<fitrobot_interfaces::srv::Trigger>::SharedPtr lifecycle_nav_service_;
     rclcpp::Service<fitrobot_interfaces::srv::TargetStation>::SharedPtr target_station_srv;
+    rclcpp::Service<CancelNav>::SharedPtr cancel_task_srv;
+
+    // goal_handle_future
+    // rclcpp_action::ClientGoalHandle<FollowWaypoints>::SharedPtr goal_handle_future;
+    std::shared_future<rclcpp_action::ClientGoalHandle<FollowWaypoints>::SharedPtr>
+        goal_handle_future;
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav_to_pose_client_;
     rclcpp_action::Client<FollowWaypoints>::SharedPtr follow_waypoints_client_;
@@ -249,6 +260,8 @@ class MasterAsyncService : public rclcpp::Node {
     void target_station_callback(
         const std::shared_ptr<fitrobot_interfaces::srv::TargetStation::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::TargetStation::Response> response);
+    void cancel_task_callback(const std::shared_ptr<CancelNav::Request> request,
+                              std::shared_ptr<CancelNav::Response> response);
     void set_robot_info_from_env();
     int get_robot_status();
     bool get_sim_time(const std::string& node_nmae);
@@ -281,7 +294,8 @@ class MasterAsyncService : public rclcpp::Node {
 
     // Waypoint queue and synchronization
     // std::queue<geometry_msgs::msg::PoseStamped> waypoint_queue_;
-    std::queue<Station> waypoint_queue_;
+    // std::queue<Station> waypoint_queue_;
+    std::deque<Station> waypoint_queue_;
     std::mutex queue_mutex_;
     std::unique_lock<std::mutex> lock;
     std::condition_variable queue_cv_;
@@ -464,6 +478,45 @@ void MasterAsyncService::target_station_callback(
     RCLCPP_INFO(this->get_logger(), "target_station_callback finished");
 }
 
+void MasterAsyncService::cancel_task_callback(const std::shared_ptr<CancelNav::Request> request,
+                                              std::shared_ptr<CancelNav::Response> response) {
+    RCLCPP_INFO(this->get_logger(), "cancel_task_callback started");
+    int idx = request->idx;
+    if (idx < 0 || idx >= (int)waypoint_queue_.size()) {
+        RCLCPP_ERROR(this->get_logger(), "Invalid index: %d", idx);
+        response->ack = "cancel_task failed";
+        return;
+    }
+    if (idx == 0) {
+        if (goal_handle_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
+            auto goal_handle = goal_handle_future.get();
+            if (goal_handle) {
+                RCLCPP_INFO(this->get_logger(), "Canceling the current task...");
+                auto future_cancel = follow_waypoints_client_->async_cancel_goal(goal_handle);
+                auto status_cancel = future_cancel.wait_for(std::chrono::seconds(5));
+                if (status_cancel == std::future_status::ready) {
+                    try {
+                        auto result_cancel = future_cancel.get();
+                        RCLCPP_INFO(this->get_logger(), "cancel task success");
+                        response->ack = "cancel_task success";
+                    } catch (const std::exception& e) {
+                        RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+                    }
+                } else {
+                    RCLCPP_ERROR(
+                        this->get_logger(),
+                        "Timeout while waiting for the cancel task operation to complete.");
+                }
+                return;
+            }
+        }
+        return;
+    }
+    waypoint_queue_.erase(waypoint_queue_.begin() + idx);
+    response->ack = "cancel_task success";
+    RCLCPP_INFO(this->get_logger(), "cancel_task_callback finished");
+}
+
 void MasterAsyncService::onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose) {
     GoToPose(*pose);
 }
@@ -584,7 +637,8 @@ void MasterAsyncService::waypointFollowerCallback(
     station = request->station;
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        waypoint_queue_.push(station);
+        // waypoint_queue_.push(station);
+        waypoint_queue_.push_back(station);
         RCLCPP_INFO(this->get_logger(), "Added waypoint to queue. Queue size: %zu",
                     waypoint_queue_.size());
         queue_cv_.notify_one();
@@ -601,32 +655,39 @@ void MasterAsyncService::waypointQueueConsumer() {
         //     queue_cv_.wait(lock,
         //                    [this]() { return !can_consume_queue_ || !waypoint_queue_.empty(); });
         // }
-        if (!can_consume_queue_) {
-            // 如果不能消费队列，释放锁并等待下一次循环
-            // lock.unlock();
+        if (!can_consume_queue_) { // means the robot is in wf navigation
             rate.sleep();
             continue;
         }
+        // last task is done which set can_consume_queue_ to true
         if (waypoint_queue_.size() != qsize) {
             qsize = waypoint_queue_.size();
-            RCLCPP_INFO(this->get_logger(), "目前排隊任務數:%zu can_consume_queue:%d", qsize,
-                        can_consume_queue_);
+            RCLCPP_INFO(this->get_logger(), "目前排隊任務數:%zu", qsize);
         }
-        if (!waypoint_queue_.empty()) { // can_consume_queue is true
+        if (!waypoint_queue_.empty()) {
             RCLCPP_INFO(this->get_logger(), "Processing waypoint...");
+            bool enablesleep_ =
+                get_parameter_bool(node_namespace + "/check_robot_status_node", "enable_sleep");
+            RCLCPP_INFO(this->get_logger(), "AAAA Sleeping:%d", enablesleep_);
+            if (enablesleep_) {
+                RCLCPP_INFO(this->get_logger(), "BBBBB Sleeping...");
+                set_parameter_for_node(node_namespace + "/check_robot_status_node",
+                                       rclcpp::Parameter("enable_sleep", false));
+            } else {
+                RCLCPP_INFO(this->get_logger(), "CCCCC Not Sleeping...");
+            }
             std::vector<Station> waypoints;
             waypoints.push_back(waypoint_queue_.front());
-            // waypoint_queue_.pop();
             waypoints.push_back(end_station);
-            // lock.unlock(); // Unlock before sending the goal
             RCLCPP_INFO(this->get_logger(), "Starting to follow waypoints...");
             followWaypoints(waypoints);
         } else if (target_station == Station()) {
             // RCLCPP_INFO(this->get_logger(), "Station null AAAAAAA");
             rate.sleep();
             continue;
-        } else {
-            // 如果队列为空，释放锁
+        } else { // 如果队列为空，释放锁
+            set_parameter_for_node(node_namespace + "/check_robot_status_node",
+                                   rclcpp::Parameter("enable_sleep", true));
             RCLCPP_INFO(this->get_logger(), "Starting to go back to home...");
             auto start_pose = geometry_msgs::msg::PoseStamped();
             start_pose.header.frame_id = "map";
@@ -636,7 +697,6 @@ void MasterAsyncService::waypointQueueConsumer() {
             start_pose.pose.orientation.w = start_station.w;
             GoToPose(start_pose);
             target_station = Station();
-            // lock.unlock();
         }
         rate.sleep();
     }
@@ -678,7 +738,8 @@ void MasterAsyncService::followWaypoints(const std::vector<Station>& waypoints) 
     send_goal_options.result_callback =
         std::bind(&MasterAsyncService::resultCallback, this, std::placeholders::_1);
     // Send the goal asynchronously
-    follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
+    // follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
+    goal_handle_future = follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
     current_waypoint = -1;
     lock.unlock();
 }
@@ -949,13 +1010,11 @@ void MasterAsyncService::resultCallback(
         RCLCPP_ERROR(this->get_logger(), "Unknown result code.");
         break;
     }
-    // Allow the consumer to proceed to the next waypoint
-    {
-        RCLCPP_INFO(this->get_logger(), "HHHHHH ResultCallback done");
-        waypoint_queue_.pop();
+    { // Allow the consumer to proceed to the next waypoint
+        RCLCPP_INFO(this->get_logger(), "ResultCallback done");
+        waypoint_queue_.pop_front();
         can_consume_queue_ = true;
     }
-    // queue_cv_.notify_one();
 }
 
 int main(int argc, char** argv) {

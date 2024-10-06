@@ -67,10 +67,7 @@ class MasterAsyncService : public rclcpp::Node {
   public:
     MasterAsyncService(const std::string& node_name, const rclcpp::NodeOptions& options)
         : Node(node_name, options) {
-        // Existing initialization...
         set_robot_info_from_env();
-        // this->declare_parameter("enable_sleep", false);
-        // this->declare_parameter("timeout_to_sleep", 10);
         const char* workspace_ = std::getenv("WORKSPACE");
         if (!workspace_) {
             RCLCPP_WARN(
@@ -82,9 +79,7 @@ class MasterAsyncService : public rclcpp::Node {
             RCLCPP_INFO(this->get_logger(), "ABC WORKSPACE: %s", workspace.c_str());
         }
 
-        auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
         auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
-
         pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
 
         service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -151,12 +146,9 @@ class MasterAsyncService : public rclcpp::Node {
             throw std::invalid_argument("Unknown robot type: " + robot_type);
         }
 
-        // Register services
         waypoint_follower_srv_ = this->create_service<WaypointFollower>(
             "waypointfollower", std::bind(&MasterAsyncService::waypointFollowerCallback, this,
                                           std::placeholders::_1, std::placeholders::_2));
-
-        // Start the waypoint queue consumer thread
         waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
 
         // temporary settings for testing
@@ -214,8 +206,6 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::Service<fitrobot_interfaces::srv::TargetStation>::SharedPtr target_station_srv;
     rclcpp::Service<CancelNav>::SharedPtr cancel_task_srv;
 
-    // goal_handle_future
-    // rclcpp_action::ClientGoalHandle<FollowWaypoints>::SharedPtr goal_handle_future;
     std::shared_future<rclcpp_action::ClientGoalHandle<FollowWaypoints>::SharedPtr>
         goal_handle_future;
 
@@ -235,7 +225,6 @@ class MasterAsyncService : public rclcpp::Node {
     int current_waypoint;
     size_t qsize;
 
-    // new needed to porting
     bool is_bt_navigator_active();
     void onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose);
     void GoToPose(const geometry_msgs::msg::PoseStamped& pose);
@@ -293,8 +282,6 @@ class MasterAsyncService : public rclcpp::Node {
         std::shared_ptr<fitrobot_interfaces::srv::SubscriptionCount::Response> response);
 
     // Waypoint queue and synchronization
-    // std::queue<geometry_msgs::msg::PoseStamped> waypoint_queue_;
-    // std::queue<Station> waypoint_queue_;
     std::deque<Station> waypoint_queue_;
     std::mutex queue_mutex_;
     std::unique_lock<std::mutex> lock;
@@ -302,16 +289,10 @@ class MasterAsyncService : public rclcpp::Node {
     bool can_consume_queue_ = true;
     std::thread waypoint_queue_thread_;
 
-    // Services
     rclcpp::Service<fitrobot_interfaces::srv::WaypointFollower>::SharedPtr waypoint_follower_srv_;
 
-    // Functions
     void waypointQueueConsumer();
     void followWaypoints(const std::vector<Station>& waypoints);
-    // void goalResponseCallback(
-    //     std::shared_future<
-    //         rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowWaypoints>::SharedPtr>
-    //         future);
     void goalResponseCallback(
         rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowWaypoints>::SharedPtr goal_handle);
 
@@ -322,10 +303,6 @@ class MasterAsyncService : public rclcpp::Node {
         const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowWaypoints>::WrappedResult&
             result);
 
-    void addWaypoint(const geometry_msgs::msg::PoseStamped& pose);
-    void removeWaypoint();
-
-    // Service callbacks
     void waypointFollowerCallback(
         const std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Response> response);
@@ -531,12 +508,6 @@ void MasterAsyncService::GoToPose(const geometry_msgs::msg::PoseStamped& pose) {
     // send goal to navigate_to_pose action server
     NavigateToPose::Goal goal;
     goal.pose = pose;
-    RCLCPP_INFO(this->get_logger(), "GoToPose!!!!!");
-    RCLCPP_INFO(this->get_logger(), "framd_id: %s", pose.header.frame_id.c_str());
-    RCLCPP_INFO(this->get_logger(), "x: %f", pose.pose.position.x);
-    RCLCPP_INFO(this->get_logger(), "y: %f", pose.pose.position.y);
-    RCLCPP_INFO(this->get_logger(), "z: %f", pose.pose.orientation.z);
-    RCLCPP_INFO(this->get_logger(), "w: %f", pose.pose.orientation.w);
     nav_to_pose_client_->wait_for_action_server(std::chrono::seconds(5));
     nav_to_pose_client_->async_send_goal(goal);
 }
@@ -650,11 +621,6 @@ void MasterAsyncService::waypointQueueConsumer() {
     rclcpp::Rate rate(1.0); // 1Hz 频率
     qsize = -1;
     while (rclcpp::ok()) {
-        // std::unique_lock<std::mutex> lock(queue_mutex_);
-        // if (waypoint_queue_.empty() && can_consume_queue_) {
-        //     queue_cv_.wait(lock,
-        //                    [this]() { return !can_consume_queue_ || !waypoint_queue_.empty(); });
-        // }
         if (!can_consume_queue_) { // means the robot is in wf navigation
             rate.sleep();
             continue;
@@ -682,7 +648,6 @@ void MasterAsyncService::waypointQueueConsumer() {
             RCLCPP_INFO(this->get_logger(), "Starting to follow waypoints...");
             followWaypoints(waypoints);
         } else if (target_station == Station()) {
-            // RCLCPP_INFO(this->get_logger(), "Station null AAAAAAA");
             rate.sleep();
             continue;
         } else { // 如果队列为空，释放锁
@@ -738,7 +703,6 @@ void MasterAsyncService::followWaypoints(const std::vector<Station>& waypoints) 
     send_goal_options.result_callback =
         std::bind(&MasterAsyncService::resultCallback, this, std::placeholders::_1);
     // Send the goal asynchronously
-    // follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
     goal_handle_future = follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
     current_waypoint = -1;
     lock.unlock();

@@ -1,7 +1,10 @@
 #include "fitrobot_interfaces/msg/robot_status.hpp"
 #include "fitrobot_interfaces/msg/station.hpp"
+#include "fitrobot_interfaces/msg/station_list.hpp"
 #include "fitrobot_interfaces/srv/cancel_nav.hpp"
+#include "fitrobot_interfaces/srv/list_station.hpp"
 #include "fitrobot_interfaces/srv/navigation.hpp"
+#include "fitrobot_interfaces/srv/para1.hpp"
 #include "fitrobot_interfaces/srv/remote_control.hpp"
 #include "fitrobot_interfaces/srv/slam.hpp"
 #include "fitrobot_interfaces/srv/subscription_count.hpp"
@@ -22,6 +25,7 @@
 #include <lifecycle_msgs/srv/get_state.hpp>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp> // 需要添加 JSON 庫
 #include <queue>
 #include <rcl_interfaces/msg/parameter.hpp>
 #include <rcl_interfaces/msg/parameter_value.hpp>
@@ -31,6 +35,7 @@
 #include <rclcpp/executor.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <regex>
 #include <std_srvs/srv/empty.hpp>
 #include <string>
 #include <sys/wait.h>
@@ -38,9 +43,12 @@
 #include <tuple> // Include for std::tuple
 #include <unordered_map>
 
+using json = nlohmann::json;
 using fitrobot_interfaces::msg::RobotStatus;
 using fitrobot_interfaces::msg::Station;
+using fitrobot_interfaces::msg::StationList;
 using fitrobot_interfaces::srv::CancelNav;
+using fitrobot_interfaces::srv::ListStation;
 using fitrobot_interfaces::srv::WaypointFollower;
 using nav2_msgs::action::FollowWaypoints;
 using nav2_msgs::action::NavigateThroughPoses;
@@ -133,6 +141,9 @@ class MasterAsyncService : public rclcpp::Node {
             node_namespace + "/bt_navigator/get_state", rmw_qos_profile_services_default,
             service_cbg_MU);
 
+        list_station_client_ = this->create_client<ListStation>(
+            "/list_station", rmw_qos_profile_services_default, service_cbg_MU);
+
         initialpose_sub_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "initialpose", 10, std::bind(&MasterAsyncService::initialpose_callback, this, _1),
             sub_options);
@@ -145,6 +156,10 @@ class MasterAsyncService : public rclcpp::Node {
         } else {
             throw std::invalid_argument("Unknown robot type: " + robot_type);
         }
+
+        robot_param_srv = this->create_service<fitrobot_interfaces::srv::Para1>(
+            "robotparam", std::bind(&MasterAsyncService::robotparam_callback, this,
+                                    std::placeholders::_1, std::placeholders::_2));
 
         waypoint_follower_srv_ = this->create_service<WaypointFollower>(
             "waypointfollower", std::bind(&MasterAsyncService::waypointFollowerCallback, this,
@@ -220,12 +235,15 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::Client<nav2_msgs::srv::ManageLifecycleNodes>::SharedPtr
         lfm_nav_client; // lifecycle_manager_navigation
     rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr bt_navigator_getstate_client;
+    rclcpp::Client<ListStation>::SharedPtr list_station_client_;
+    rclcpp::Service<fitrobot_interfaces::srv::Para1>::SharedPtr robot_param_srv;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
     rclcpp::Time last_feedback_time_;
     std::mutex feedback_mutex_;
     int current_waypoint;
     size_t qsize;
     bool cansleep_;
+    std::vector<Station> current_stationlist;
 
     bool is_bt_navigator_active();
     void onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose);
@@ -308,6 +326,10 @@ class MasterAsyncService : public rclcpp::Node {
     void waypointFollowerCallback(
         const std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Request> request,
         std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Response> response);
+
+    void
+    robotparam_callback(const std::shared_ptr<fitrobot_interfaces::srv::Para1::Request> request,
+                        std::shared_ptr<fitrobot_interfaces::srv::Para1::Response> response);
 };
 
 // Implementations of the functions go here...
@@ -601,6 +623,69 @@ bool MasterAsyncService::set_parameter_for_node(const std::string& node_name,
                      "Timeout while waiting for the parameter set operation to complete.");
     }
     return false;
+}
+
+void MasterAsyncService::robotparam_callback(
+    const std::shared_ptr<fitrobot_interfaces::srv::Para1::Request> request,
+    std::shared_ptr<fitrobot_interfaces::srv::Para1::Response> response) {
+    RCLCPP_INFO(this->get_logger(), "robotparam_callback started");
+    response->success = true;
+    std::string parameter1_name = request->parameter1_name;
+    std::string parameter1_value = request->parameter1_value;
+    if (parameter1_name == "select_stationlist") {
+        auto log_station_info = [](rclcpp::Logger logger, const std::string& station_name,
+                                   const std::string& station_type, double x, double y, double z,
+                                   double w) {
+            RCLCPP_INFO(logger,
+                        "station: %-20s (type: %-8s) [x,y,z,w]= [%6.1f, %6.1f, %6.3f, %6.3f]",
+                        station_name.c_str(), station_type.c_str(), x, y, z, w);
+        };
+        auto convertToJsonString = [](const std::string& input) {
+            std::string output = input;
+            output = std::regex_replace(output, std::regex("'"), "\"");
+            output = std::regex_replace(output, std::regex("\\bTrue\\b"), "\"true\"");
+            output = std::regex_replace(output, std::regex("\\bFalse\\b"), "\"false\"");
+            return output;
+        };
+
+        RCLCPP_INFO(this->get_logger(), "parameter1_value: %s", parameter1_value.c_str());
+        std::string json_string = convertToJsonString(parameter1_value);
+        RCLCPP_INFO(this->get_logger(), "json_string: %s", json_string.c_str());
+        json jsoninfo = json::parse(json_string);
+        // std::string use_sim = jsoninfo["use_sim"];
+        bool use_sim = (jsoninfo["use_sim"] == "true");
+        std::string map_key = jsoninfo["map_key"];
+        std::string station_key = jsoninfo["station_key"];
+        auto request_ = std::make_shared<ListStation::Request>();
+        // request_->use_sim = true;
+        request_->use_sim = use_sim;
+        request_->map_key = map_key;
+        request_->station_key = station_key;
+        list_station_client_->wait_for_service(std::chrono::seconds(5));
+        list_station_client_->async_send_request(request_);
+
+        auto future = list_station_client_->async_send_request(request_);
+        auto status = future.wait_for(std::chrono::seconds(5));
+        if (status == std::future_status::ready) {
+            auto response = future.get();
+            current_stationlist = response->station_list;
+            RCLCPP_INFO(this->get_logger(), "current_stationlist size: %zu",
+                        current_stationlist.size());
+            for (const auto& station : current_stationlist) {
+                auto type = station.type;
+                auto name = station.name;
+                auto x = station.x;
+                auto y = station.y;
+                auto z = station.z;
+                auto w = station.w;
+                log_station_info(this->get_logger(), name, type, x, y, z, w);
+            }
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "Timeout while waiting for GetState service.");
+        }
+
+        RCLCPP_INFO(this->get_logger(), "robotparam_callback finished");
+    }
 }
 
 void MasterAsyncService::waypointFollowerCallback(

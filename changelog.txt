@@ -1,9 +1,18 @@
+2024/10/7 13:30
+feat: add service for selecting stationlist as future usage
+ - rely on nlohmann_json library
+ - add service robot_param_srv to accept request from app clients
+   interface: fitrobot_interfaces::srv::Para1
+   usage example:
+     ros2 service call /lino2_1234/robotparam fitrobot_interfaces/srv/Para1 "{
+       parameter1_name: select_stationlist,
+       parameter1_value: {use_sim: true, map_key: turtlebot3_world/lino2, station_key: two_stations}}"
+ - add client list_station_client_ to request ListStation service
+
 2024/10/7 10:00
 feat: disable sleep during whole wf navigation if can_sleep=true
  - rename enable_sleep to can_sleep
  - only go to sleep after going home
-
-
 
 2024/10/6 16:20
 feat: allow for cancel task at any index

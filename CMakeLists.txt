@@ -23,6 +23,7 @@ find_package(nav2_msgs REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(fitrobot_interfaces REQUIRED)
+# find_package(nlohmann_json REQUIRED)
 
 # add_executable(button src/button.cpp) target_link_libraries(button
 # pigpiod_if2) ament_target_dependencies(button rclcpp std_msgs)
@@ -78,7 +79,9 @@ ament_target_dependencies(
   lifecycle_msgs
   std_srvs
   fitrobot_interfaces
+  # nlohmann_json
 )
+target_link_libraries(master_wpf nlohmann_json::nlohmann_json)
 
 # === legacy trial-and-error code ===
 # add_library(basic_navigator_lib SHARED src/robot_navigator.cpp )

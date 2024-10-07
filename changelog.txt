@@ -1,3 +1,10 @@
+2024/10/7 10:00
+feat: disable sleep during whole wf navigation if can_sleep=true
+ - rename enable_sleep to can_sleep
+ - only go to sleep after going home
+
+
+
 2024/10/6 16:20
 feat: allow for cancel task at any index
  - use deque instaed of queue to allow get/set/pop at certain index

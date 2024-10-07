@@ -167,6 +167,7 @@ class MasterAsyncService : public rclcpp::Node {
 
         last_feedback_time_ = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
         target_station = Station();
+        cansleep_ = get_parameter_bool(node_namespace + "/check_robot_status_node", "can_sleep");
     }
 
     ~MasterAsyncService() {
@@ -224,6 +225,7 @@ class MasterAsyncService : public rclcpp::Node {
     std::mutex feedback_mutex_;
     int current_waypoint;
     size_t qsize;
+    bool cansleep_;
 
     bool is_bt_navigator_active();
     void onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose);
@@ -632,10 +634,7 @@ void MasterAsyncService::waypointQueueConsumer() {
         }
         if (!waypoint_queue_.empty()) {
             RCLCPP_INFO(this->get_logger(), "Processing waypoint...");
-            bool enablesleep_ =
-                get_parameter_bool(node_namespace + "/check_robot_status_node", "enable_sleep");
-            RCLCPP_INFO(this->get_logger(), "AAAA Sleeping:%d", enablesleep_);
-            if (enablesleep_) {
+            if (cansleep_) {
                 RCLCPP_INFO(this->get_logger(), "BBBBB Sleeping...");
                 set_parameter_for_node(node_namespace + "/check_robot_status_node",
                                        rclcpp::Parameter("enable_sleep", false));
@@ -651,8 +650,10 @@ void MasterAsyncService::waypointQueueConsumer() {
             rate.sleep();
             continue;
         } else { // 如果队列为空，释放锁
-            set_parameter_for_node(node_namespace + "/check_robot_status_node",
-                                   rclcpp::Parameter("enable_sleep", true));
+            if (cansleep_) {
+                set_parameter_for_node(node_namespace + "/check_robot_status_node",
+                                       rclcpp::Parameter("enable_sleep", true));
+            }
             RCLCPP_INFO(this->get_logger(), "Starting to go back to home...");
             auto start_pose = geometry_msgs::msg::PoseStamped();
             start_pose.header.frame_id = "map";

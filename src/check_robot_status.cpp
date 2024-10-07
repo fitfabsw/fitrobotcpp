@@ -88,7 +88,8 @@ class RobotStatusCheckNode : public rclcpp::Node {
         set_robot_info_from_env();
 
         this->declare_parameter("fitrobot_status", RobotStatus::STANDBY);
-        this->declare_parameter("enable_sleep", false);
+        this->declare_parameter("can_sleep", false);
+        this->declare_parameter("enable_sleep", true);
         this->declare_parameter("timeout_to_sleep", 10);
         tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -442,8 +443,12 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 if (std::find(cansleep_statuses.begin(), cansleep_statuses.end(), robot_status) !=
                     cansleep_statuses.end()) {
                     // pause all the nav2 lifecycle nodes
-                    RCLCPP_INFO(this->get_logger(), "watch for sleep");
-                    if (this->get_parameter("enable_sleep").as_bool()) {
+                    bool cansleep_ = this->get_parameter("can_sleep").as_bool();
+                    bool enablesleep_ = this->get_parameter("enable_sleep").as_bool();
+                    RCLCPP_INFO(this->get_logger(),
+                                "watch for sleep. cansleep_: %d, enablesleep_: %d", cansleep_,
+                                enablesleep_);
+                    if (cansleep_ && enablesleep_) {
                         RCLCPP_INFO(this->get_logger(), "Sleeping...");
                         lifecycle_manage_cmd("pause");
                         is_deactivated_ = true;

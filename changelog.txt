@@ -1,3 +1,9 @@
+2024/10/7 16:20
+feat: override waypointfollower service. Use stationlist info if only station name is given.
+- usage example:
+  ros2 service call /lino2_1234/waypointfollower fitrobot_interfaces/srv/WaypointFollower "{station:{name: Station-00A}}"
+
+
 2024/10/7 13:30
 feat: add service for selecting stationlist as future usage
  - rely on nlohmann_json library

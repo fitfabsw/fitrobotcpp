@@ -167,18 +167,18 @@ class MasterAsyncService : public rclcpp::Node {
         waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
 
         // temporary settings for testing
-        start_station.type = "start";
-        start_station.name = "Charging Station";
-        start_station.x = -0.5;
-        start_station.y = -0.5;
-        start_station.z = 0.707;
-        start_station.w = 0.707;
-        end_station.type = "end";
-        end_station.name = "FA Room";
-        end_station.x = 0.5;
-        end_station.y = -0.5;
-        end_station.z = 0.707;
-        end_station.w = 0.707;
+        // start_station.type = "start";
+        // start_station.name = "Charging Station";
+        // start_station.x = -0.5;
+        // start_station.y = -0.5;
+        // start_station.z = 0.707;
+        // start_station.w = 0.707;
+        // end_station.type = "end";
+        // end_station.name = "FA Room";
+        // end_station.x = 0.5;
+        // end_station.y = -0.5;
+        // end_station.z = 0.707;
+        // end_station.w = 0.707;
 
         last_feedback_time_ = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
         target_station = Station();
@@ -581,7 +581,9 @@ bool MasterAsyncService::is_bt_navigator_active() {
             return true;
         }
     } else {
-        RCLCPP_ERROR(this->get_logger(), "Timeout while waiting for GetState service.");
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "is_bt_navigator_active: Timeout while waiting for request of GetState service.");
     }
     return false;
 }
@@ -629,7 +631,6 @@ void MasterAsyncService::robotparam_callback(
     const std::shared_ptr<fitrobot_interfaces::srv::Para1::Request> request,
     std::shared_ptr<fitrobot_interfaces::srv::Para1::Response> response) {
     RCLCPP_INFO(this->get_logger(), "robotparam_callback started");
-    response->success = true;
     std::string parameter1_name = request->parameter1_name;
     std::string parameter1_value = request->parameter1_value;
     if (parameter1_name == "select_stationlist") {
@@ -667,8 +668,8 @@ void MasterAsyncService::robotparam_callback(
         auto future = list_station_client_->async_send_request(request_);
         auto status = future.wait_for(std::chrono::seconds(5));
         if (status == std::future_status::ready) {
-            auto response = future.get();
-            current_stationlist = response->station_list;
+            auto resp = future.get();
+            current_stationlist = resp->station_list;
             RCLCPP_INFO(this->get_logger(), "current_stationlist size: %zu",
                         current_stationlist.size());
             for (const auto& station : current_stationlist) {
@@ -679,7 +680,15 @@ void MasterAsyncService::robotparam_callback(
                 auto z = station.z;
                 auto w = station.w;
                 log_station_info(this->get_logger(), name, type, x, y, z, w);
+                if (type == "start") {
+                    start_station = station;
+                } else if (type == "end") {
+                    end_station = station;
+                }
             }
+            RCLCPP_INFO(this->get_logger(), "start_station: %s", start_station.name.c_str());
+            RCLCPP_INFO(this->get_logger(), "end_station: %s", end_station.name.c_str());
+            response->success = "true";
         } else {
             RCLCPP_ERROR(this->get_logger(), "Timeout while waiting for GetState service.");
         }
@@ -694,14 +703,44 @@ void MasterAsyncService::waypointFollowerCallback(
     Station station;
     station = request->station;
     {
+        RCLCPP_INFO(this->get_logger(), "waypointFollowerCallback started. station: %s",
+                    station.name.c_str());
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        // waypoint_queue_.push(station);
-        waypoint_queue_.push_back(station);
-        RCLCPP_INFO(this->get_logger(), "Added waypoint to queue. Queue size: %zu",
-                    waypoint_queue_.size());
+        // check validity of station compared with stationlist
+        if (current_stationlist.size() == 0) {
+            RCLCPP_ERROR(this->get_logger(), "stationlist is empty");
+            response->ack = "stationlist is empty. Please set stationlist first.";
+            queue_cv_.notify_one();
+            return;
+        }
+        for (const auto& each : current_stationlist) {
+            RCLCPP_INFO(this->get_logger(), "each: %s", each.name.c_str());
+            auto sta = Station();
+            if (each.name == station.name) {
+                if (station.x == 0.0 && station.y == 0.0 && station.z == 0.0 && station.w == 0.0) {
+                    RCLCPP_INFO(this->get_logger(), "request station (x,y,z,w) is (0,0,0,0). Use "
+                                                    "station in stationlist instead.");
+                    waypoint_queue_.push_back(each); // use station in stationlist
+                    sta = each;
+                } else {
+                    waypoint_queue_.push_back(station); // use station in request
+                    sta = station;
+                }
+                char buffer[256];
+                snprintf(buffer, sizeof(buffer),
+                         "Added waypoint to queue. Queue size: %zu. Added station %s --> "
+                         "(x,y,z,w)=(%g, %g, %g, %g)",
+                         waypoint_queue_.size(), sta.name.c_str(), sta.x, sta.y, sta.z, sta.w);
+                RCLCPP_INFO(this->get_logger(), "%s", buffer);
+                response->ack = buffer;
+                break;
+            } else {
+                RCLCPP_INFO(this->get_logger(), "station name not match with curent stationlist");
+                response->ack = "station name not match with curent stationlist";
+            }
+        }
         queue_cv_.notify_one();
     }
-    response->ack = "Waypoint added to queue.";
 }
 
 void MasterAsyncService::waypointQueueConsumer() {

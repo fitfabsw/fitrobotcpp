@@ -326,7 +326,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the parameter set operation to complete.");
+                         "Timeout while waiting for the request lifecycle_manage_cmd to complete.");
         }
     }
 
@@ -345,7 +345,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the parameter set operation to complete.");
+                         "Timeout while waiting for the request lifecycle_node_cmd to complete.");
         }
     }
 
@@ -371,7 +371,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the parameter set operation to complete.");
+                         "Timeout while waiting for the lifecycle_nav service to complete.");
         }
     }
 
@@ -403,7 +403,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the parameter set operation to complete.");
+                         "Timeout while waiting for the register_robot service to complete.");
         }
     }
 
@@ -432,7 +432,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the parameter set operation to complete.");
+                         "Timeout while waiting for the update_robot service to complete.");
         }
     }
 

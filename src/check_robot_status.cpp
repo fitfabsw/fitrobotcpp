@@ -177,8 +177,8 @@ class RobotStatusCheckNode : public rclcpp::Node {
     }
 
     void navigate_to_pose_goal_status_callback(const GoalStatusArray::SharedPtr msg) {
+        RCLCPP_INFO(this->get_logger(), "UUUU navigate_to_pose_goal_status_callback!");
         auto status = msg->status_list.back().status;
-        int fitrobot_status;
         std::string status_log;
         auto set_and_log_status = [&](int new_status, const std::string& status_log) {
             publish_status(new_status);
@@ -215,6 +215,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
     }
 
     void follower_waypoints_status_callback(const GoalStatusArray::SharedPtr msg) {
+        RCLCPP_INFO(this->get_logger(), "UUUU follower_waypoints_status_callback!");
         auto status = msg->status_list.back().status;
         auto update_status = [&](int new_status, const std::string& log) {
             waypoints_following_ = (status == GoalStatus::STATUS_EXECUTING);

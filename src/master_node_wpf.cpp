@@ -86,9 +86,12 @@ class MasterAsyncService : public rclcpp::Node {
             workspace = workspace_;
             RCLCPP_INFO(this->get_logger(), "ABC WORKSPACE: %s", workspace.c_str());
         }
+        this->declare_parameter("waypoint_queue_size", 0);
 
         auto qos_pub = rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
+        auto qos_station = rclcpp::QoS(1);
         pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
+        station_pub_ = this->create_publisher<Station>("target_station", qos_station);
 
         service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         service_cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
@@ -207,6 +210,7 @@ class MasterAsyncService : public rclcpp::Node {
     Station target_station;
     rclcpp::SubscriptionOptions sub_options;
     rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
+    rclcpp::Publisher<Station>::SharedPtr station_pub_;
     rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr nav_srv_;
@@ -242,6 +246,7 @@ class MasterAsyncService : public rclcpp::Node {
     size_t qsize;
     bool cansleep_;
     std::vector<Station> current_stationlist;
+    std::vector<Station> waypoints_;
 
     bool is_bt_navigator_active();
     void onGoalPoseReceived(const geometry_msgs::msg::PoseStamped::SharedPtr pose);
@@ -774,6 +779,7 @@ void MasterAsyncService::waypointQueueConsumer() {
             rate.sleep();
             continue;
         } else { // 如果队列为空，释放锁
+            RCLCPP_INFO(this->get_logger(), "JJJJJ waypoint_queue_ is empty");
             if (cansleep_) {
                 set_parameter_for_node(node_namespace + "/check_robot_status_node",
                                        rclcpp::Parameter("enable_sleep", true));
@@ -800,8 +806,7 @@ void MasterAsyncService::followWaypoints(const std::vector<Station>& waypoints) 
     // std::unique_lock<std::mutex> lock(queue_mutex_);
     lock = std::unique_lock<std::mutex>(queue_mutex_);
     can_consume_queue_ = false;
-    target_station = waypoints[0];
-    // const std::vector<geometry_msgs::msg::PoseStamped>& waypoints) {
+    waypoints_ = waypoints;
     startup_nav(lfm_nav_client);
     if (!follow_waypoints_client_->wait_for_action_server(std::chrono::seconds(5))) {
         RCLCPP_ERROR(this->get_logger(), "FollowWaypoints action server not available.");
@@ -1082,10 +1087,13 @@ void MasterAsyncService::feedbackCallback(
     if ((now - last_feedback_time_).seconds() >= 1.0) {
         if (current_waypoint != (int)feedback->current_waypoint) {
             int idx = feedback->current_waypoint;
-            auto station = current_stationlist[idx];
+            target_station = waypoints_[idx];
             RCLCPP_INFO(this->get_logger(),
-                        "Heading to waypoint %u. Station: %s. (x,y,z,w)=(%g, %g, %g, %g)", idx,
-                        station.name.c_str(), station.x, station.y, station.z, station.w);
+                        "Heading to waypoint %u. target_station: %s. (x,y,z,w)=(%g, %g, %g, %g)",
+                        idx, target_station.name.c_str(), target_station.x, target_station.y,
+                        target_station.z, target_station.w);
+            // publish target_station_target_station topic
+            station_pub_->publish(target_station);
             current_waypoint = feedback->current_waypoint;
         }
         last_feedback_time_ = now;

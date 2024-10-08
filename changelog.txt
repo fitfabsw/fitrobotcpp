@@ -1,3 +1,21 @@
+2024/10/8 13:30
+fix: async client timeout issue
+ issue1: in status_check, register_robot_client timeout after async_send_request
+   fix: in line "timer_ = this->create_wall_timer..."
+        add service_cbg_RE
+ issue2: in status_check, multiple pause lifecycle nodes
+   fix: move line 
+          "is_deactivated_ = true" 
+        before line 
+          "lifecycle_manage_cmd("pause");" in status_check()
+ issue3: in lifecycle_nav_callback, all request by lfm_nav_client will timeout
+   fix: in line " lifecycle_nav_service_ = this->create_service..."
+        change service_cbg_MU to service_cbg_RE 
+        THIS IS A IMPORTANT LEARNING
+ issue4: param_clients_ timeout in initialpose_callback
+   fix: add line before line "initialpose_sub_ = this->create_subscription..."
+          sub_options.callback_group = service_cbg_MU;
+
 2024/10/8 08:30
 fix: sleep when state change to NAV_WF_COMPLETED(23)
  1 description

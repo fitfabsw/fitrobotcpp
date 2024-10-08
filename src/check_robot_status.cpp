@@ -104,7 +104,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
         service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
         service_cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-        timer_ = this->create_wall_timer(1s, std::bind(&RobotStatusCheckNode::status_check, this));
+        timer_ = this->create_wall_timer(1s, std::bind(&RobotStatusCheckNode::status_check, this),
+                                         service_cbg_RE);
+        // service_cbg_MU);
 
         service_ = this->create_service<std_srvs::srv::Trigger>(
             "is_localized", std::bind(&RobotStatusCheckNode::srv_localized_callback, this, _1, _2));
@@ -149,6 +151,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
                              RobotStatus::NAV_WF_CANCEL, RobotStatus::NAV_WF_FAILED};
         running_statuses = {RobotStatus::NAV_RUNNING, RobotStatus::NAV_WF_RUNNING};
         is_deactivated_ = false;
+        cansleep_ = this->get_parameter("can_sleep").as_bool();
     }
 
   private:
@@ -443,15 +446,14 @@ class RobotStatusCheckNode : public rclcpp::Node {
                 if (std::find(cansleep_statuses.begin(), cansleep_statuses.end(), robot_status) !=
                     cansleep_statuses.end()) {
                     // pause all the nav2 lifecycle nodes
-                    bool cansleep_ = this->get_parameter("can_sleep").as_bool();
                     bool enablesleep_ = this->get_parameter("enable_sleep").as_bool();
                     RCLCPP_INFO(this->get_logger(),
                                 "watch for sleep. cansleep_: %d, enablesleep_: %d", cansleep_,
                                 enablesleep_);
                     if (cansleep_ && enablesleep_) {
                         RCLCPP_INFO(this->get_logger(), "Sleeping...");
-                        lifecycle_manage_cmd("pause");
                         is_deactivated_ = true;
+                        lifecycle_manage_cmd("pause");
                     }
                 }
             } else if (std::find(running_statuses.begin(), running_statuses.end(), robot_status) !=
@@ -530,6 +532,7 @@ class RobotStatusCheckNode : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
     }
 
+    bool cansleep_;
     std::string robot_type;
     std::string robot_sn;
     std::string robot_namespace;

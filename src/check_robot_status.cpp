@@ -85,7 +85,9 @@ class RobotStatusCheckNode : public rclcpp::Node {
   public:
     RobotStatusCheckNode() : Node("check_robot_status_node") {
 
-        set_robot_info_from_env();
+        // set_robot_info_from_env();
+        robot_namespace = this->get_effective_namespace();
+        RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
 
         this->declare_parameter("fitrobot_status", RobotStatus::STANDBY);
         this->declare_parameter("can_sleep", false);
@@ -521,17 +523,17 @@ class RobotStatusCheckNode : public rclcpp::Node {
         }
     }
 
-    void set_robot_info_from_env() {
-        const char* robot_info = std::getenv("ROBOT_INFO");
-        if (!robot_info) {
-            RCLCPP_WARN(this->get_logger(),
-                        "Environment variable ROBOT_INFO is not set! Use default namespace=/");
-            robot_namespace = "";
-        } else {
-            std::tie(robot_type, robot_sn, robot_namespace) = parse_robot_info(robot_info);
-        }
-        RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
-    }
+    // void set_robot_info_from_env() {
+    //     const char* robot_info = std::getenv("ROBOT_INFO");
+    //     if (!robot_info) {
+    //         RCLCPP_WARN(this->get_logger(),
+    //                     "Environment variable ROBOT_INFO is not set! Use default namespace=/");
+    //         robot_namespace = "";
+    //     } else {
+    //         std::tie(robot_type, robot_sn, robot_namespace) = parse_robot_info(robot_info);
+    //     }
+    //     RCLCPP_INFO(this->get_logger(), "Node name set to: %s", robot_namespace.c_str());
+    // }
 
     bool cansleep_;
     std::string robot_type;

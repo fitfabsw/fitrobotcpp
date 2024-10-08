@@ -1,3 +1,7 @@
+2024/10/8 23:50
+fix: remove duplicated dependency on ROBOT_INFO in check_robot_status
+  - use get_effective_namespace() to get namespace directly
+
 2024/10/8 17:30
 fix: publish target_station when go back home
 

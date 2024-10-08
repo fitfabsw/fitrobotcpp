@@ -162,27 +162,16 @@ class MasterAsyncService : public rclcpp::Node {
                                     std::placeholders::_1, std::placeholders::_2));
 
         waypoint_follower_srv_ = this->create_service<WaypointFollower>(
-            "waypointfollower", std::bind(&MasterAsyncService::waypointFollowerCallback, this,
-                                          std::placeholders::_1, std::placeholders::_2));
-        waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
+            "waypointfollower",
+            std::bind(&MasterAsyncService::waypointFollowerCallback, this, std::placeholders::_1,
+                      std::placeholders::_2),
+            rmw_qos_profile_services_default, service_cbg_MU);
 
-        // temporary settings for testing
-        // start_station.type = "start";
-        // start_station.name = "Charging Station";
-        // start_station.x = -0.5;
-        // start_station.y = -0.5;
-        // start_station.z = 0.707;
-        // start_station.w = 0.707;
-        // end_station.type = "end";
-        // end_station.name = "FA Room";
-        // end_station.x = 0.5;
-        // end_station.y = -0.5;
-        // end_station.z = 0.707;
-        // end_station.w = 0.707;
+        waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
 
         last_feedback_time_ = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
         target_station = Station();
-        cansleep_ = get_parameter_bool(node_namespace + "/check_robot_status_node", "can_sleep");
+        // cansleep_ = get_parameter_bool(node_namespace + "/check_robot_status_node", "can_sleep");
     }
 
     ~MasterAsyncService() {
@@ -702,6 +691,11 @@ void MasterAsyncService::waypointFollowerCallback(
     std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Response> response) {
     Station station;
     station = request->station;
+    cansleep_ = get_parameter_bool(node_namespace + "/check_robot_status_node", "can_sleep");
+    RCLCPP_INFO(this->get_logger(), "waypointFollowerCallback started. station. cansleep: %d",
+                cansleep_);
+    int robot_status = get_robot_status();
+    RCLCPP_INFO(this->get_logger(), "Robot status: %d", robot_status);
     {
         RCLCPP_INFO(this->get_logger(), "waypointFollowerCallback started. station: %s",
                     station.name.c_str());
@@ -778,13 +772,15 @@ void MasterAsyncService::waypointQueueConsumer() {
                 set_parameter_for_node(node_namespace + "/check_robot_status_node",
                                        rclcpp::Parameter("enable_sleep", true));
             }
-            RCLCPP_INFO(this->get_logger(), "Starting to go back to home...");
             auto start_pose = geometry_msgs::msg::PoseStamped();
             start_pose.header.frame_id = "map";
             start_pose.pose.position.x = start_station.x;
             start_pose.pose.position.y = start_station.y;
             start_pose.pose.orientation.z = start_station.z;
             start_pose.pose.orientation.w = start_station.w;
+            RCLCPP_INFO(this->get_logger(),
+                        "Starting to go back to home. (x,y,z,w)=(%g, %g, %g, %g)", start_station.x,
+                        start_station.y, start_station.z, start_station.w);
             GoToPose(start_pose);
             target_station = Station();
         }
@@ -1037,6 +1033,8 @@ void MasterAsyncService::remote_control_callback(
     RCLCPP_INFO(this->get_logger(), "sim_time: %s", sim_time ? "true" : "false");
     std::string frame_id = get_parameter_string("/turtlebot3_world/lino2/map_server", "frame_id");
     RCLCPP_INFO(this->get_logger(), "frame_id: %s", frame_id.c_str());
+    bool cansleep = get_parameter_bool(node_namespace + "/check_robot_status_node", "can_sleep");
+    RCLCPP_INFO(this->get_logger(), "cansleep: %s", cansleep ? "true" : "false");
     RCLCPP_INFO(this->get_logger(), "remote_control_callback finished");
 }
 
@@ -1075,7 +1073,11 @@ void MasterAsyncService::feedbackCallback(
     rclcpp::Time now = this->now();
     if ((now - last_feedback_time_).seconds() >= 1.0) {
         if (current_waypoint != (int)feedback->current_waypoint) {
-            RCLCPP_INFO(this->get_logger(), "Heading to waypoint %u", feedback->current_waypoint);
+            int idx = feedback->current_waypoint;
+            auto station = current_stationlist[idx];
+            RCLCPP_INFO(this->get_logger(),
+                        "Heading to waypoint %u. Station: %s. (x,y,z,w)=(%g, %g, %g, %g)", idx,
+                        station.name.c_str(), station.x, station.y, station.z, station.w);
             current_waypoint = feedback->current_waypoint;
         }
         last_feedback_time_ = now;

@@ -796,6 +796,7 @@ void MasterAsyncService::waypointQueueConsumer() {
                         "Starting to go back to home. (x,y,z,w)=(%g, %g, %g, %g)", start_station.x,
                         start_station.y, start_station.z, start_station.w);
             GoToPose(start_pose);
+            station_pub_->publish(start_station);
             target_station = Station();
         }
         rate.sleep();

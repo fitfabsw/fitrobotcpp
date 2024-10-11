@@ -83,6 +83,22 @@ ament_target_dependencies(
 )
 target_link_libraries(master_wpf nlohmann_json::nlohmann_json)
 
+add_executable(master_wpf2 src/master_node_wpf2.cpp)
+ament_target_dependencies(
+  master_wpf2
+  rclcpp
+  tf2
+  tf2_ros
+  std_msgs
+  action_msgs
+  nav2_msgs
+  lifecycle_msgs
+  std_srvs
+  fitrobot_interfaces
+  # nlohmann_json
+)
+target_link_libraries(master_wpf2 nlohmann_json::nlohmann_json)
+
 # === legacy trial-and-error code ===
 # add_library(basic_navigator_lib SHARED src/robot_navigator.cpp )
 # ament_target_dependencies(basic_navigator_lib rclcpp std_srvs rclcpp_action
@@ -111,7 +127,7 @@ include_directories(
 install(DIRECTORY include/ DESTINATION include)
 # install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
-install(TARGETS master_node check_robot_status master_wpf
+install(TARGETS master_node check_robot_status master_wpf master_wpf2
         DESTINATION lib/${PROJECT_NAME}
 )
 

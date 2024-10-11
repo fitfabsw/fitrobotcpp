@@ -119,10 +119,12 @@ class RobotStatusCheckNode : public rclcpp::Node {
         sub_nav_to_pose_ = this->create_subscription<GoalStatusArray>(
             "navigate_to_pose/_action/status", 10,
             std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1));
+        // std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1),
         // sub_options);
         sub_follow_wp_ = this->create_subscription<GoalStatusArray>(
             "follow_waypoints/_action/status", 10,
             std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1));
+        // std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1),
         // sub_options);
 
         callback_handle_ = this->add_on_set_parameters_callback(

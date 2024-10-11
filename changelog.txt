@@ -1,3 +1,8 @@
+2024/10/10 22:00
+feat: add master_node_wpf2.cpp
+ - use more mutex locks to handle thread safety & efficiency (on-going)
+ - how to launch: ros2 run fitrobotcpp master_wpf2
+
 2024/10/8 23:50
 fix: remove duplicated dependency on ROBOT_INFO in check_robot_status
   - use get_effective_namespace() to get namespace directly

@@ -1,3 +1,21 @@
+2024/10/13 15:00
+perf/fix: optimize check_robot_status & master_master_node_wpf2 to eliminate blocking 
+          between each other using mutex lock & correct callback_group for callbacks
+ - check_robot_status
+   1. Use callback_group reentrant instead of mutually_exclusive for both sub_follow_wp_ & sub_nav_to_pose_
+   2. Solve robot_status 21/11 order issue by adding mutex
+      navigate_to_pose_goal_status_callback wait 1s for waypoints_callback_received_ flag
+ - master_node_wpf2
+   1. Changed callback_groups
+    - cancel_task_srv: MU -> RE
+    - nav_to_pose_client_: none -> MU
+    - follow_waypoints_client_: none -> MU
+   2. Add resultCallbackGotopose for GoToPose
+   3. hangel cansleep_ & station_pub_ & target_station more carefully
+   4. only call startup_nav in several places if is_bt_navigator_active is false
+   5. Add more debug messages
+
+
 2024/10/10 22:00
 feat: add master_node_wpf2.cpp
  - use more mutex locks to handle thread safety & efficiency (on-going)

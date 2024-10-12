@@ -115,17 +115,18 @@ class RobotStatusCheckNode : public rclcpp::Node {
         // rmw_qos_profile_services_default, service_cbg_MU);
 
         rclcpp::SubscriptionOptions sub_options;
-        sub_options.callback_group = service_cbg_MU;
+        // sub_options.callback_group = service_cbg_MU;
+        sub_options.callback_group = service_cbg_RE;
         sub_nav_to_pose_ = this->create_subscription<GoalStatusArray>(
             "navigate_to_pose/_action/status", 10,
-            std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1));
-        // std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1),
-        // sub_options);
+            std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1),
+            sub_options);
+        // std::bind(&RobotStatusCheckNode::navigate_to_pose_goal_status_callback, this, _1));
         sub_follow_wp_ = this->create_subscription<GoalStatusArray>(
             "follow_waypoints/_action/status", 10,
-            std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1));
-        // std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1),
-        // sub_options);
+            std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1),
+            sub_options);
+        // std::bind(&RobotStatusCheckNode::follower_waypoints_status_callback, this, _1));
 
         callback_handle_ = this->add_on_set_parameters_callback(
             std::bind(&RobotStatusCheckNode::parametersCallback, this, _1));
@@ -181,8 +182,22 @@ class RobotStatusCheckNode : public rclcpp::Node {
     }
 
     void navigate_to_pose_goal_status_callback(const GoalStatusArray::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "UUUU navigate_to_pose_goal_status_callback!");
         auto status = msg->status_list.back().status;
+        RCLCPP_INFO(this->get_logger(), "FF navigate_to_pose_goal_status_callback. [%d]", status);
+        {
+            std::unique_lock<std::mutex> lock(wp_cb_mutex_);
+            RCLCPP_INFO(this->get_logger(), "Waiting for follower_waypoints_status_callback...");
+            // 等待最多 1 秒鐘來檢查 `follower_waypoints_status_callback` 是否已執行
+            bool received = wp_cb_cv_.wait_for(lock, std::chrono::seconds(1),
+                                               [this] { return waypoints_callback_received_; });
+            if (received) {
+                RCLCPP_INFO(this->get_logger(), "follower_waypoints_status_callback occurred.");
+            } else {
+                RCLCPP_INFO(this->get_logger(), "no follower_waypoints_status_callback occurred.");
+            }
+            waypoints_callback_received_ = false;
+        }
+        // }
         std::string status_log;
         auto set_and_log_status = [&](int new_status, const std::string& status_log) {
             publish_status(new_status);
@@ -190,59 +205,78 @@ class RobotStatusCheckNode : public rclcpp::Node {
             this->set_parameter(Parameter("fitrobot_status", new_status));
             update_robot(new_status);
         };
-        switch (status) {
-        case GoalStatus::STATUS_EXECUTING:
-            // lifecycle_node_cmd(client_, Transition::TRANSITION_DEACTIVATE);
-            // lifecycle_nav("startup");
-            set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_RUNNING
-                                                    : RobotStatus::NAV_RUNNING,
-                               waypoints_following_ ? "NAV_WF_RUNNING" : "NAV_RUNNING");
-            break;
-        case GoalStatus::STATUS_SUCCEEDED:
-            set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_ARRIVED
-                                                    : RobotStatus::NAV_ARRIVED,
-                               waypoints_following_ ? "NAV_WF_ARRIVED" : "NAV_ARRIVED");
-            break;
-        case GoalStatus::STATUS_CANCELED:
-            if (!waypoints_following_) {
-                set_and_log_status(RobotStatus::NAV_CANCEL, "NAV_CANCEL");
+        {
+            std::lock_guard<std::mutex> lock(wp_mutex_);
+            RCLCPP_INFO(this->get_logger(), "waypoints_following_: %d", waypoints_following_);
+            switch (status) {
+            case GoalStatus::STATUS_EXECUTING:
+                // lifecycle_node_cmd(client_, Transition::TRANSITION_DEACTIVATE);
+                // lifecycle_nav("startup");
+                set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_RUNNING
+                                                        : RobotStatus::NAV_RUNNING,
+                                   waypoints_following_ ? "NAV_WF_RUNNING" : "NAV_RUNNING");
+                break;
+            case GoalStatus::STATUS_SUCCEEDED:
+                set_and_log_status(waypoints_following_ ? RobotStatus::NAV_WF_ARRIVED
+                                                        : RobotStatus::NAV_ARRIVED,
+                                   waypoints_following_ ? "NAV_WF_ARRIVED" : "NAV_ARRIVED");
+                break;
+            case GoalStatus::STATUS_CANCELED:
+                RCLCPP_INFO(this->get_logger(), "STATUS_CANCELED Navigation to pose");
+                if (!waypoints_following_) {
+                    set_and_log_status(RobotStatus::NAV_CANCEL, "NAV_CANCEL");
+                }
+                break;
+            case GoalStatus::STATUS_ABORTED:
+                RCLCPP_INFO(this->get_logger(), "STATUS_ABORTED Navigation to pose");
+                if (!waypoints_following_) {
+                    set_and_log_status(RobotStatus::NAV_FAILED, "NAV_FAILED");
+                }
+                break;
+            default:
+                break;
             }
-            break;
-        case GoalStatus::STATUS_ABORTED:
-            if (!waypoints_following_) {
-                set_and_log_status(RobotStatus::NAV_FAILED, "NAV_FAILED");
-            }
-            break;
-        default:
-            break;
         }
     }
 
     void follower_waypoints_status_callback(const GoalStatusArray::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "UUUU follower_waypoints_status_callback!");
         auto status = msg->status_list.back().status;
+        RCLCPP_INFO(this->get_logger(), "FF follower_waypoints_status_callback. [%d]", status);
+        {
+            std::unique_lock<std::mutex> lock(wp_cb_mutex_);
+            waypoints_callback_received_ = true; // 設置標誌位為 true
+            wp_cb_cv_.notify_one();              // 喚醒所有等待的執行緒
+        }
         auto update_status = [&](int new_status, const std::string& log) {
             waypoints_following_ = (status == GoalStatus::STATUS_EXECUTING);
             publish_status(new_status);
             RCLCPP_INFO(this->get_logger(), "%s", log.c_str());
+            RCLCPP_INFO(this->get_logger(), "waypoints_following_: %d", waypoints_following_);
             this->set_parameter(Parameter("fitrobot_status", new_status));
             update_robot(new_status);
         };
-        switch (status) {
-        case GoalStatus::STATUS_EXECUTING:
-            waypoints_following_ = true; // 更新為執行狀態，但不需做進一步處理
-            break;
-        case GoalStatus::STATUS_SUCCEEDED:
-            update_status(RobotStatus::NAV_WF_COMPLETED, "NAV_WF_COMPLETED");
-            break;
-        case GoalStatus::STATUS_CANCELED:
-            update_status(RobotStatus::NAV_WF_CANCEL, "NAV_WF_CANCEL");
-            break;
-        case GoalStatus::STATUS_ABORTED:
-            update_status(RobotStatus::NAV_WF_FAILED, "NAV_WF_FAILED");
-            break;
-        default:
-            break;
+        {
+            std::lock_guard<std::mutex> lock(wp_mutex_);
+            switch (status) {
+            case GoalStatus::STATUS_EXECUTING:
+                waypoints_following_ = true; // 更新為執行狀態，但不需做進一步處理
+                break;
+            case GoalStatus::STATUS_SUCCEEDED:
+                update_status(RobotStatus::NAV_WF_COMPLETED, "NAV_WF_COMPLETED");
+                break;
+            case GoalStatus::STATUS_CANCELED:
+                RCLCPP_INFO(this->get_logger(), "STATUS_CANCELED FollowWaypoints");
+                // waypoints_following_ = true;
+                update_status(RobotStatus::NAV_WF_CANCEL, "NAV_WF_CANCEL");
+                break;
+            case GoalStatus::STATUS_ABORTED:
+                RCLCPP_INFO(this->get_logger(), "STATUS_ABORTED FollowWaypoints");
+                // waypoints_following_ = true;
+                update_status(RobotStatus::NAV_WF_FAILED, "NAV_WF_FAILED");
+                break;
+            default:
+                break;
+            }
         }
     }
 
@@ -402,16 +436,18 @@ class RobotStatusCheckNode : public rclcpp::Node {
             try {
                 auto result = future.get();
                 if (result->success == "true") {
-                    RCLCPP_INFO(this->get_logger(), "Register robot success!");
+                    RCLCPP_INFO(this->get_logger(), "Register robot [%d] success!", robot_status);
                 } else {
-                    RCLCPP_ERROR(this->get_logger(), "Register robot failed!");
+                    RCLCPP_ERROR(this->get_logger(), "Register robot [%d] failed!", robot_status);
                 }
             } catch (const std::exception& e) {
-                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+                RCLCPP_ERROR(this->get_logger(), "Service call [%d] failed: %s", robot_status,
+                             e.what());
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the register_robot service to complete.");
+                         "Timeout while waiting for the register_robot [%d] to complete.",
+                         robot_status);
         }
     }
 
@@ -431,16 +467,18 @@ class RobotStatusCheckNode : public rclcpp::Node {
             try {
                 auto result = future.get();
                 if (result->success == "true") {
-                    RCLCPP_INFO(this->get_logger(), "Update robot success!");
+                    RCLCPP_INFO(this->get_logger(), "Update robot [%d] success!", robot_status);
                 } else {
-                    RCLCPP_ERROR(this->get_logger(), "Update robot failed!");
+                    RCLCPP_ERROR(this->get_logger(), "Update robot [%d] failed!", robot_status);
                 }
             } catch (const std::exception& e) {
-                RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
+                RCLCPP_ERROR(this->get_logger(), "Service call [%d] failed: %s", robot_status,
+                             e.what());
             }
         } else {
             RCLCPP_ERROR(this->get_logger(),
-                         "Timeout while waiting for the update_robot service to complete.");
+                         "Timeout while waiting for the update_robot [%d] to complete.",
+                         robot_status);
         }
     }
 
@@ -565,6 +603,10 @@ class RobotStatusCheckNode : public rclcpp::Node {
     rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
     std::string ip;
     bool is_deactivated_;
+    std::condition_variable wp_cb_cv_;
+    std::mutex wp_cb_mutex_;
+    std::mutex wp_mutex_;
+    bool waypoints_callback_received_ = false; // 標誌位，表示 `callback2` 是否已經被觸發
 };
 
 int main(int argc, char** argv) {

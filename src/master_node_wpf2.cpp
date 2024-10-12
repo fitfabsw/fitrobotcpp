@@ -93,56 +93,56 @@ class MasterAsyncService : public rclcpp::Node {
         pub_ = this->create_publisher<RobotStatus>("robot_status", qos_pub);
         station_pub_ = this->create_publisher<Station>("target_station", qos_pub);
 
-        service_cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-        service_cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+        cbg_MU = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        cbg_RE = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
         // services
         nav_srv_ = this->create_service<fitrobot_interfaces::srv::Navigation>(
             "navigation", std::bind(&MasterAsyncService::navigation_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
         slam_srv_ = this->create_service<fitrobot_interfaces::srv::Slam>(
             "slam", std::bind(&MasterAsyncService::slam_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
         remote_control_srv_ = this->create_service<fitrobot_interfaces::srv::RemoteControl>(
             "remote_control", std::bind(&MasterAsyncService::remote_control_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
         terminate_srv_ = this->create_service<fitrobot_interfaces::srv::TerminateProcess>(
             "terminate_slam_or_navigation",
             std::bind(&MasterAsyncService::terminate_slam_or_navigation_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
         subscription_count_srv_ = this->create_service<fitrobot_interfaces::srv::SubscriptionCount>(
             "subscription_count",
             std::bind(&MasterAsyncService::subscription_count_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
         lifecycle_nav_service_ = this->create_service<fitrobot_interfaces::srv::Trigger>(
             "lifecycle_nav", std::bind(&MasterAsyncService::lifecycle_nav_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_RE);
-        // rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_RE); // this must use cbg_RE
         target_station_srv = this->create_service<fitrobot_interfaces::srv::TargetStation>(
             "target_station", std::bind(&MasterAsyncService::target_station_callback, this,
                                         std::placeholders::_1, std::placeholders::_2));
         cancel_task_srv = this->create_service<CancelNav>(
             "cancel_task", std::bind(&MasterAsyncService::cancel_task_callback, this, _1, _2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_RE);
+        // rmw_qos_profile_services_default, cbg_MU);
 
         // service clients
         lfm_nav_client = this->create_client<nav2_msgs::srv::ManageLifecycleNodes>(
             node_namespace + "/lifecycle_manager_navigation/manage_nodes",
-            rmw_qos_profile_services_default, service_cbg_MU);
-        nav_to_pose_client_ =
-            rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
+            rmw_qos_profile_services_default, cbg_MU);
         bt_navigator_getstate_client = this->create_client<lifecycle_msgs::srv::GetState>(
-            node_namespace + "/bt_navigator/get_state", rmw_qos_profile_services_default,
-            service_cbg_MU);
+            node_namespace + "/bt_navigator/get_state", rmw_qos_profile_services_default, cbg_MU);
         list_station_client_ = this->create_client<ListStation>(
-            "/list_station", rmw_qos_profile_services_default, service_cbg_MU);
-
+            "/list_station", rmw_qos_profile_services_default, cbg_MU);
         // action clients
+        nav_to_pose_client_ =
+            rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose", cbg_MU);
+        // rclcpp_action::create_client<NavigateToPose>(this, "navigate_to_pose");
         follow_waypoints_client_ =
-            rclcpp_action::create_client<FollowWaypoints>(this, "follow_waypoints");
+            rclcpp_action::create_client<FollowWaypoints>(this, "follow_waypoints", cbg_MU);
+        // rclcpp_action::create_client<FollowWaypoints>(this, "follow_waypoints");
 
         // subscriptions
-        sub_options.callback_group = service_cbg_MU;
+        sub_options.callback_group = cbg_MU;
         goal_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "goalpose", rclcpp::SystemDefaultsQoS(),
             std::bind(&MasterAsyncService::onGoalPoseReceived, this, std::placeholders::_1));
@@ -170,11 +170,11 @@ class MasterAsyncService : public rclcpp::Node {
             "waypointfollower",
             std::bind(&MasterAsyncService::waypointFollowerCallback, this, std::placeholders::_1,
                       std::placeholders::_2),
-            rmw_qos_profile_services_default, service_cbg_MU);
+            rmw_qos_profile_services_default, cbg_MU);
 
-        waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
-        // waypoint_queue_future_ =
-        //     std::async(std::launch::async, &MasterAsyncService::waypointQueueConsumer, this);
+        // waypoint_queue_thread_ = std::thread(&MasterAsyncService::waypointQueueConsumer, this);
+        waypoint_queue_future_ =
+            std::async(std::launch::async, &MasterAsyncService::waypointQueueConsumer, this);
 
         last_feedback_time_ = rclcpp::Time(0, 0, this->get_clock()->get_clock_type());
         target_station = Station();
@@ -211,8 +211,8 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::SubscriptionOptions sub_options;
     rclcpp::Publisher<fitrobot_interfaces::msg::RobotStatus>::SharedPtr pub_;
     rclcpp::Publisher<Station>::SharedPtr station_pub_;
-    rclcpp::CallbackGroup::SharedPtr service_cbg_MU;
-    rclcpp::CallbackGroup::SharedPtr service_cbg_RE;
+    rclcpp::CallbackGroup::SharedPtr cbg_MU;
+    rclcpp::CallbackGroup::SharedPtr cbg_RE;
     rclcpp::Service<fitrobot_interfaces::srv::Navigation>::SharedPtr nav_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::Slam>::SharedPtr slam_srv_;
     rclcpp::Service<fitrobot_interfaces::srv::RemoteControl>::SharedPtr remote_control_srv_;
@@ -242,7 +242,7 @@ class MasterAsyncService : public rclcpp::Node {
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
     rclcpp::Time last_feedback_time_;
     size_t qsize;
-    bool cansleep_;
+    bool cansleep_ = false;
     std::vector<Station> current_stationlist;
     std::vector<Station> waypoints_;
     // Waypoint queue and synchronization
@@ -292,6 +292,9 @@ class MasterAsyncService : public rclcpp::Node {
     bool get_parameter_for_node(const std::string& node_name, const std::string& param_name,
                                 rclcpp::Parameter& param_value);
     bool set_parameter_for_node(const std::string& node_name, const rclcpp::Parameter& param_value);
+    void log_parameter_timeout_error(const std::string& node_name,
+                                     const rclcpp::Parameter& param_value);
+
     void set_parameters_map_mask(std::string worldname);
     void run_navigation_async(std::string worldname);
     void navigation_callback(
@@ -321,6 +324,9 @@ class MasterAsyncService : public rclcpp::Node {
         const std::shared_ptr<const nav2_msgs::action::FollowWaypoints::Feedback> feedback);
     void resultCallback(
         const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowWaypoints>::WrappedResult&
+            result);
+    void resultCallbackGotopose(
+        const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult&
             result);
     void waypointFollowerCallback(
         const std::shared_ptr<fitrobot_interfaces::srv::WaypointFollower::Request> request,
@@ -529,86 +535,44 @@ void MasterAsyncService::onGoalPoseReceived(const geometry_msgs::msg::PoseStampe
 }
 
 void MasterAsyncService::GoToPose(const geometry_msgs::msg::PoseStamped& pose) {
-    // Startup all the lifecycle nodes
-    startup_nav(lfm_nav_client);
     if (!is_bt_navigator_active()) {
-        RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, proceeding to navigation.");
-        return;
+        RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, suggesting the robot is in "
+                                        "sleep. Trying to wake it up by calling startup_nav().");
+        startup_nav(lfm_nav_client);
     }
-
-    // Send goal to navigate_to_pose action server
-    NavigateToPose::Goal goal;
+    auto goal = NavigateToPose::Goal();
     goal.pose = pose;
-
     if (!nav_to_pose_client_->wait_for_action_server(std::chrono::seconds(5))) {
         RCLCPP_ERROR(this->get_logger(), "NavigateToPose action server not available.");
         return;
     }
 
     auto send_goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
-    send_goal_options.result_callback = [this](const auto& result) {
-        switch (result.code) {
-        case rclcpp_action::ResultCode::SUCCEEDED:
-            RCLCPP_INFO(this->get_logger(), "Navigation to pose succeeded.");
-            break;
-        case rclcpp_action::ResultCode::ABORTED:
-            RCLCPP_ERROR(this->get_logger(), "Navigation to pose was aborted.");
-            break;
-        case rclcpp_action::ResultCode::CANCELED:
-            RCLCPP_WARN(this->get_logger(), "Navigation to pose was canceled.");
-            break;
-        default:
-            RCLCPP_ERROR(this->get_logger(), "Unknown result code.");
-            break;
-        }
-    };
-
-    auto goal_handle_future = nav_to_pose_client_->async_send_goal(goal, send_goal_options);
-
-    // Wait for the result
-    if (goal_handle_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
-        auto goal_handle = goal_handle_future.get();
-        if (goal_handle) {
-            auto result_future = nav_to_pose_client_->async_get_result(goal_handle);
-            if (result_future.wait_for(std::chrono::seconds(30)) == std::future_status::ready) {
-                auto result = result_future.get();
-                if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
-                    RCLCPP_INFO(this->get_logger(), "Successfully reached the goal.");
-                } else {
-                    RCLCPP_ERROR(this->get_logger(), "Failed to reach the goal.");
-                }
-            } else {
-                RCLCPP_ERROR(this->get_logger(), "Timeout waiting for the result.");
+    send_goal_options.goal_response_callback =
+        [this](rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr goal_handle) {
+            if (!goal_handle) {
+                RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the action server.");
+                return;
             }
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the server.");
-        }
-    } else {
-        RCLCPP_ERROR(this->get_logger(), "Timeout waiting for the goal to be accepted.");
-    }
-}
+            RCLCPP_INFO(this->get_logger(),
+                        "Goal accepted by the action server, waiting for result...");
+        };
+    send_goal_options.result_callback =
+        std::bind(&MasterAsyncService::resultCallbackGotopose, this, std::placeholders::_1);
 
-// void MasterAsyncService::GoToPose(const geometry_msgs::msg::PoseStamped& pose) {
-//     // startup all the lifecycle nodes
-//     startup_nav(lfm_nav_client);
-//     if (!is_bt_navigator_active()) {
-//         RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, proceeding to navigation.");
-//         return;
-//     }
-//     // send goal to navigate_to_pose action server
-//     NavigateToPose::Goal goal;
-//     goal.pose = pose;
-//     nav_to_pose_client_->wait_for_action_server(std::chrono::seconds(5));
-//     nav_to_pose_client_->async_send_goal(goal);
-// }
+    nav_to_pose_client_->async_send_goal(goal, send_goal_options);
+
+    RCLCPP_INFO(this->get_logger(), "Goal sent to NavigateToPose action server.");
+}
 
 void MasterAsyncService::onGoalPoseArrayReceived(
     const geometry_msgs::msg::PoseArray::SharedPtr poses) {
     // startup all the lifecycle nodes
-    startup_nav(lfm_nav_client);
     if (!is_bt_navigator_active()) {
-        RCLCPP_INFO(this->get_logger(), "bt_navigator is not active, proceeding to navigation.");
-        return;
+        RCLCPP_INFO(this->get_logger(), "bt_navigator is not active which suggests robot is in "
+                                        "sleep. Try to wake it up by calling startup_nav()");
+        startup_nav(lfm_nav_client);
+        // return;
     }
     FollowWaypoints::Goal goal;
     goal.poses.clear();
@@ -671,7 +635,7 @@ bool MasterAsyncService::set_parameter_for_node(const std::string& node_name,
     }
     // 异步设置参数
     auto future = param_client->set_parameters({param_value});
-    auto status = future.wait_for(std::chrono::milliseconds(100));
+    auto status = future.wait_for(std::chrono::milliseconds(1000));
     if (status == std::future_status::ready) {
         try {
             auto result = future.get();
@@ -687,10 +651,33 @@ bool MasterAsyncService::set_parameter_for_node(const std::string& node_name,
             RCLCPP_ERROR(this->get_logger(), "Service call failed: %s", e.what());
         }
     } else {
-        RCLCPP_ERROR(this->get_logger(),
-                     "Timeout while waiting for the parameter set operation to complete.");
+        RCLCPP_INFO(this->get_logger(), "AAAAAAAAA");
+        log_parameter_timeout_error(node_name, param_value);
     }
     return false;
+}
+
+void MasterAsyncService::log_parameter_timeout_error(const std::string& node_name,
+                                                     const rclcpp::Parameter& param_value) {
+    std::string param_value_str;
+
+    switch (param_value.get_type()) {
+    case rclcpp::ParameterType::PARAMETER_INTEGER:
+        param_value_str = std::to_string(param_value.as_int());
+        break;
+    case rclcpp::ParameterType::PARAMETER_BOOL:
+        param_value_str = param_value.as_bool() ? "true" : "false";
+        break;
+    case rclcpp::ParameterType::PARAMETER_STRING:
+        param_value_str = param_value.as_string();
+        break;
+    default:
+        param_value_str = "unsupported parameter type";
+        break;
+    }
+    RCLCPP_ERROR(this->get_logger(),
+                 "Timeout while waiting for the parameter set operation [%s][%s][%s] to complete.",
+                 node_name.c_str(), param_value.get_name().c_str(), param_value_str.c_str());
 }
 
 void MasterAsyncService::robotparam_callback(
@@ -823,26 +810,42 @@ void MasterAsyncService::waypointQueueConsumer() {
         }
         if (is_queue_empty) {
             RCLCPP_INFO(this->get_logger(), "waypoint_queue_ is empty");
+            rclcpp::Rate rate_(2);
             if (target_station != Station()) {
-                rclcpp::Rate rate(10);
+                auto start_time = std::chrono::steady_clock::now();
+                auto timeout = std::chrono::seconds(5); // 設定超時時間
                 while (rclcpp::ok()) {
-                    RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
+                    RCLCPP_INFO(this->get_logger(),
+                                "wait for status (NAV_WF_COMPLETED, NAV_WF_CANCEL, NAV_WF_FAILED)");
                     int robot_status = get_robot_status();
                     if (robot_status == RobotStatus::NAV_WF_COMPLETED ||
                         robot_status == RobotStatus::NAV_WF_CANCEL ||
                         robot_status == RobotStatus::NAV_WF_FAILED) {
                         break;
                     }
-                    rate.sleep();
+                    if (std::chrono::steady_clock::now() - start_time > timeout) {
+                        RCLCPP_WARN(this->get_logger(), "Timeout waiting for navigation status");
+                        break; // 超時，跳出迴圈
+                    }
+                    rate_.sleep();
                 }
-                // while (rclcpp::ok()) {
-                //     RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
-                //     int robot_status = get_robot_status();
-                //     if (robot_status == RobotStatus::NAV_RUNNING ){
-                //         break;
-                //     }
-                //     rate.sleep();
-                // }
+                int robot_status = get_robot_status();
+                if (robot_status == RobotStatus::NAV_WF_CANCEL) {
+                    start_time = std::chrono::steady_clock::now(); // 重置計時器
+                    while (rclcpp::ok()) {
+                        RCLCPP_INFO(this->get_logger(), "wait for status NAV_CANCEL");
+                        int robot_status = get_robot_status();
+                        if (robot_status == RobotStatus::NAV_CANCEL) {
+                            break;
+                        }
+                        if (std::chrono::steady_clock::now() - start_time > timeout) {
+                            RCLCPP_WARN(this->get_logger(),
+                                        "Timeout waiting for NAV_CANCEL status");
+                            break; // 超時，跳出迴圈
+                        }
+                        rate_.sleep();
+                    }
+                }
                 auto start_pose = geometry_msgs::msg::PoseStamped();
                 start_pose.header.frame_id = "map";
                 start_pose.pose.position.x = start_station.x;
@@ -852,22 +855,17 @@ void MasterAsyncService::waypointQueueConsumer() {
                 RCLCPP_INFO(this->get_logger(),
                             "Starting to go back to home. (x,y,z,w)=(%g, %g, %g, %g)",
                             start_station.x, start_station.y, start_station.z, start_station.w);
-                station_pub_->publish(start_station);
                 GoToPose(start_pose);
+                station_pub_->publish(start_station);
                 target_station = Station();
-                if (cansleep_) {
-                    set_parameter_for_node(node_namespace + "/check_robot_status_node",
-                                           rclcpp::Parameter("enable_sleep", true));
-                    RCLCPP_INFO(this->get_logger(),
-                                "Ready to go back home. Set enable_sleep to true again.");
-                }
             }
             rate.sleep();
             continue;
         }
         RCLCPP_INFO(this->get_logger(), "Processing waypoint...");
         if (cansleep_) {
-            RCLCPP_INFO(this->get_logger(), "disable sleep during wf navigation...");
+            RCLCPP_INFO(this->get_logger(),
+                        "disable sleep during wf navigation. set enable_sleep = false");
             set_parameter_for_node(node_namespace + "/check_robot_status_node",
                                    rclcpp::Parameter("enable_sleep", false));
         }
@@ -894,7 +892,11 @@ void MasterAsyncService::followWaypoints(const std::vector<Station>& waypoints) 
         std::lock_guard<std::mutex> lc(waypoints_mutex_);
         waypoints_ = waypoints;
     }
-    startup_nav(lfm_nav_client);
+    // startup_nav(lfm_nav_client);
+    if (!is_bt_navigator_active()) {
+        startup_nav(lfm_nav_client);
+    }
+
     if (!follow_waypoints_client_->wait_for_action_server(std::chrono::seconds(5))) {
         RCLCPP_ERROR(this->get_logger(), "FollowWaypoints action server not available.");
         return;
@@ -925,6 +927,7 @@ void MasterAsyncService::followWaypoints(const std::vector<Station>& waypoints) 
         std::bind(&MasterAsyncService::resultCallback, this, std::placeholders::_1);
     // Send the goal asynchronously
     goal_handle_future = follow_waypoints_client_->async_send_goal(goal_msg, send_goal_options);
+    target_station = waypoints_.front();
     station_pub_->publish(waypoints_.front());
 }
 
@@ -1033,7 +1036,8 @@ bool MasterAsyncService::get_parameter_for_node(const std::string& node_name,
         }
     } else {
         RCLCPP_ERROR(this->get_logger(),
-                     "Timeout while waiting for the parameter get operation to complete.");
+                     "Timeout while waiting for the parameter get operation [%s][%s] to complete.",
+                     node_name.c_str(), param_name.c_str());
     }
     return false;
 }
@@ -1190,6 +1194,37 @@ void MasterAsyncService::feedbackCallback(
     }
 }
 
+void MasterAsyncService::resultCallbackGotopose(
+    const rclcpp_action::ClientGoalHandle<nav2_msgs::action::NavigateToPose>::WrappedResult&
+        result) {
+    bool proceed = false;
+    RCLCPP_INFO(this->get_logger(), "in resultCallbackGotopose");
+    switch (result.code) {
+    case rclcpp_action::ResultCode::SUCCEEDED:
+        RCLCPP_INFO(this->get_logger(), "Navigation to pose succeeded.");
+        proceed = true;
+        break;
+    case rclcpp_action::ResultCode::ABORTED:
+        // if during going back home, another wp navigation is triggered, this will cause this
+        // callback aborted. And we can let the robot to sleep
+        RCLCPP_ERROR(this->get_logger(), "Navigation to pose was aborted.");
+        break;
+    case rclcpp_action::ResultCode::CANCELED:
+        RCLCPP_WARN(this->get_logger(), "Navigation to pose was canceled.");
+        break;
+    default:
+        RCLCPP_ERROR(this->get_logger(), "Unknown result code.");
+        proceed = true;
+        break;
+    }
+    if (cansleep_ && proceed) {
+        RCLCPP_INFO(this->get_logger(), "resultCallbackGotopose -> set enable_sleep = true");
+        set_parameter_for_node(node_namespace + "/check_robot_status_node",
+                               rclcpp::Parameter("enable_sleep", true));
+        RCLCPP_INFO(this->get_logger(), "Ready to go back home. Set enable_sleep to true again.");
+    }
+}
+
 void MasterAsyncService::resultCallback(
     const rclcpp_action::ClientGoalHandle<nav2_msgs::action::FollowWaypoints>::WrappedResult&
         result) {
@@ -1216,17 +1251,6 @@ void MasterAsyncService::resultCallback(
         std::lock_guard<std::mutex> l2(feedback_mutex_);
         current_waypoint = -1;
     }
-    // rclcpp::Rate rate(1);
-    // while (rclcpp::ok()) {
-    //     RCLCPP_INFO(this->get_logger(), "clean_up: ready to shutdown.");
-    //     int robot_status = get_robot_status();
-    //     if (robot_status == RobotStatus::NAV_WF_COMPLETED ||
-    //         robot_status == RobotStatus::NAV_WF_CANCEL ||
-    //         robot_status == RobotStatus::NAV_WF_FAILED) {
-    //         break;
-    //     }
-    //     rate.sleep();
-    // }
     {
         std::unique_lock<std::mutex> l3(canconsume_mutex_);
         can_consume_queue_ = true;
